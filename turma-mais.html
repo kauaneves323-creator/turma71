@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turma+</title>
+<style>
+  :root{
+    --paper:#FBF8F1;
+    --paper-2:#F3EEE1;
+    --rule:#DCD5C2;
+    --ink:#23324D;
+    --ink-soft:#5B6A87;
+    --red:#C1443C;
+    --red-dark:#8E2F29;
+    --yellow:#EFB93E;
+    --green:#4C7A54;
+    --white:#FFFFFF;
+    --shadow: 0 2px 0 rgba(35,50,77,0.06);
+    --serif: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;}
+  #app{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:
+      repeating-linear-gradient(var(--paper), var(--paper) 27px, var(--rule) 28px);
+    background-color:var(--paper);
+    min-height:600px;
+    border-radius:14px;
+    overflow:hidden;
+    border:1px solid var(--rule);
+    display:flex;
+    position:relative;
+  }
+  #app::before{
+    content:"";
+    position:absolute; left:0; top:0; bottom:0; width:34px;
+    background: repeating-linear-gradient(var(--paper-2), var(--paper-2) 22px, var(--rule) 23px);
+    border-right:2px solid var(--rule);
+    background-image:
+      radial-gradient(circle at 17px 20px, var(--paper) 5px, transparent 5.5px),
+      repeating-linear-gradient(var(--paper-2), var(--paper-2) 22px, var(--rule) 23px);
+    background-repeat: repeat-y, repeat;
+    z-index:0;
+  }
+  .shell{ position:relative; z-index:1; width:100%; display:flex; }
+  ::selection{ background:var(--yellow); color:var(--ink); }
+
+  /* ---------- LOGIN ---------- */
+  .auth-wrap{
+    width:100%; min-height:600px; display:flex; align-items:center; justify-content:center;
+    padding: 40px 24px;
+  }
+  .auth-card{
+    width:100%; max-width:380px; background:var(--white); border:1px solid var(--rule);
+    border-radius:12px; padding:32px 28px; box-shadow:var(--shadow);
+  }
+  .brand{ display:flex; align-items:baseline; gap:6px; margin-bottom:4px; }
+  .brand .mark{ font-family:var(--serif); font-weight:700; font-size:28px; color:var(--red); }
+  .brand .plus{ font-family:var(--serif); font-weight:700; font-size:28px; color:var(--yellow); }
+  .brand-sub{ font-size:13px; color:var(--ink-soft); margin-bottom:26px; }
+  .tabbar{ display:flex; border-bottom:2px solid var(--rule); margin-bottom:22px; }
+  .tabbar button{
+    flex:1; background:none; border:none; padding:10px 4px; font-size:14px; font-weight:600;
+    color:var(--ink-soft); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px;
+    font-family:var(--sans);
+  }
+  .tabbar button.active{ color:var(--red); border-bottom-color:var(--red); }
+  label{ display:block; font-size:12px; font-weight:600; color:var(--ink-soft); margin:14px 0 6px; text-transform:uppercase; letter-spacing:.04em; }
+  input[type=text],input[type=email],input[type=password],input[type=number],select,textarea{
+    width:100%; padding:10px 12px; border:1.5px solid var(--rule); border-radius:8px;
+    font-size:14px; font-family:var(--sans); color:var(--ink); background:var(--white);
+  }
+  input:focus,select:focus,textarea:focus{ outline:none; border-color:var(--ink); }
+  .hint{ font-size:12px; color:var(--ink-soft); margin-top:5px; }
+  .err{ font-size:12px; color:var(--red-dark); margin-top:6px; font-weight:600; }
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:11px 18px; border-radius:8px; border:none; font-size:14px; font-weight:700;
+    cursor:pointer; font-family:var(--sans);
+  }
+  .btn-primary{ background:var(--red); color:#fff; width:100%; margin-top:20px; }
+  .btn-primary:hover{ background:var(--red-dark); }
+  .btn-google{
+    width:100%; margin-top:12px; background:var(--white); color:var(--ink);
+    border:1.5px solid var(--rule);
+  }
+  .btn-google:hover{ border-color:var(--ink); }
+  .btn-ghost{ background:none; border:1.5px solid var(--rule); color:var(--ink); }
+  .btn-ghost:hover{ border-color:var(--ink); }
+  .btn-sm{ padding:7px 12px; font-size:13px; }
+  .divider{ display:flex; align-items:center; gap:10px; margin:18px 0 4px; color:var(--ink-soft); font-size:12px; }
+  .divider::before,.divider::after{ content:""; flex:1; height:1px; background:var(--rule); }
+  .google-mini{ margin-top:10px; padding:12px; border:1px dashed var(--rule); border-radius:8px; background:var(--paper-2); }
+
+  /* ---------- APP SHELL AFTER LOGIN ---------- */
+  .sidebar{
+    width:190px; padding:22px 14px; border-right:2px solid var(--rule);
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .side-brand{ font-family:var(--serif); font-weight:700; font-size:20px; color:var(--red); margin:0 6px 22px; }
+  .side-brand span{ color:var(--yellow); }
+  .navbtn{
+    display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px 2px 2px 8px;
+    background:none; border:none; text-align:left; font-size:14px; font-weight:600; color:var(--ink-soft);
+    cursor:pointer; font-family:var(--sans); border-left:4px solid transparent;
+  }
+  .navbtn:hover{ background:var(--paper-2); }
+  .navbtn.active{ background:var(--white); color:var(--ink); border-left-color:var(--red); box-shadow:var(--shadow); }
+  .side-foot{ margin-top:auto; padding-top:14px; border-top:1px solid var(--rule); }
+  .side-user{ font-size:13px; font-weight:700; padding:0 6px 8px; color:var(--ink); }
+  .logout{ font-size:12px; color:var(--ink-soft); background:none; border:none; cursor:pointer; padding:0 6px; font-family:var(--sans); }
+  .logout:hover{ color:var(--red); }
+
+  .main{ flex:1; padding:26px 32px; max-height:640px; overflow-y:auto; }
+  .page-title{ font-family:var(--serif); font-size:24px; margin:0 0 4px; }
+  .page-sub{ font-size:13px; color:var(--ink-soft); margin:0 0 22px; }
+
+  .card{ background:var(--white); border:1px solid var(--rule); border-radius:10px; padding:16px 18px; box-shadow:var(--shadow); }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:14px; }
+
+  .subject-card{ cursor:pointer; transition:transform .1s; }
+  .subject-card:hover{ transform:translateY(-1px); border-color:var(--ink); }
+  .subject-tab{ width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px; }
+  .subject-name{ font-weight:700; font-size:15px; margin:0 0 2px; display:flex; align-items:center;}
+  .subject-meta{ font-size:12px; color:var(--ink-soft); }
+  .subject-stats{ display:flex; justify-content:space-between; align-items:flex-end; margin-top:14px; }
+  .stat-num{ font-family:var(--mono); font-size:22px; font-weight:700; }
+  .stat-label{ font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); }
+
+  .back{ background:none; border:none; color:var(--ink-soft); font-size:13px; cursor:pointer; margin-bottom:14px; font-family:var(--sans); font-weight:600; padding:0;}
+  .back:hover{ color:var(--red); }
+
+  table.notas{ width:100%; border-collapse:collapse; margin-top:14px; }
+  table.notas th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); border-bottom:2px solid var(--rule); padding:6px 4px; }
+  table.notas td{ padding:8px 4px; border-bottom:1px solid var(--rule); font-size:14px; }
+  table.notas td.n{ font-family:var(--mono); font-weight:700; text-align:right; }
+  .add-row{ display:flex; gap:8px; margin-top:16px; }
+  .add-row input{ width:auto; }
+  .add-row input.prova-nome{ flex:1; }
+  .add-row input.prova-nota{ width:80px; }
+
+  .badge{ display:inline-block; font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; }
+  .badge-red{ background:#FBE7E4; color:var(--red-dark); }
+  .badge-green{ background:#E6EFE6; color:var(--green); }
+  .badge-yellow{ background:#FCF1D9; color:#8A6110; }
+
+  .topic{ border-bottom:1px solid var(--rule); padding:14px 0; cursor:pointer; }
+  .topic:last-child{ border-bottom:none; }
+  .topic:hover .topic-title{ color:var(--red); }
+  .topic-title{ font-weight:700; font-size:15px; margin:0 0 4px; }
+  .topic-meta{ font-size:12px; color:var(--ink-soft); }
+
+  .reply{ background:var(--paper-2); border-radius:8px; padding:10px 12px; margin-top:10px; }
+  .reply-meta{ font-size:11px; color:var(--ink-soft); font-weight:700; margin-bottom:3px; }
+
+  .quiz-card{ display:flex; justify-content:space-between; align-items:center; }
+  .qopt{ display:flex; align-items:center; gap:10px; padding:10px 12px; border:1.5px solid var(--rule); border-radius:8px; margin-bottom:8px; cursor:pointer; }
+  .qopt:hover{ border-color:var(--ink); }
+  .qopt.selected{ border-color:var(--red); background:#FBE7E4; }
+  .qopt.correct{ border-color:var(--green); background:#E6EFE6; }
+  .qopt.wrong{ border-color:var(--red); background:#FBE7E4; }
+
+  .pergunta-block{ border:1px solid var(--rule); border-radius:8px; padding:14px; margin-top:12px; background:var(--paper-2); }
+  .pergunta-block h4{ margin:0 0 8px; font-size:13px; }
+  .opt-input{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .opt-input input[type=radio]{ width:16px; height:16px; }
+  .opt-input input[type=text]{ flex:1; }
+
+  .empty{ text-align:center; padding:36px 12px; color:var(--ink-soft); }
+  .empty .em-title{ font-weight:700; color:var(--ink); margin-bottom:4px; font-family:var(--serif); font-size:17px; }
+
+  .toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:10px; flex-wrap:wrap; }
+  .chiprow{ display:flex; gap:8px; flex-wrap:wrap; }
+  .chip{ padding:6px 12px; border-radius:20px; border:1.5px solid var(--rule); background:var(--white); font-size:12px; font-weight:700; cursor:pointer; color:var(--ink-soft); font-family:var(--sans); }
+  .chip.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  .modalbg{ position:fixed; inset:0; background:rgba(35,50,77,0.35); display:flex; align-items:center; justify-content:center; z-index:50; }
+  .modal{ background:var(--white); border-radius:12px; padding:24px; width:92%; max-width:480px; max-height:80vh; overflow-y:auto; }
+  .modal h3{ font-family:var(--serif); margin:0 0 14px; }
+  .modal-actions{ display:flex; gap:10px; margin-top:18px; }
+
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--rule); border-radius:8px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="shell" id="shell"></div></div>
+
+<script>
+const SUBJECT_COLORS = {
+  "Português":"#C1443C","Matemática":"#4C7A54","História":"#8A6110",
+  "Geografia":"#3D6E8C","Ciências":"#6A4C93","Inglês":"#B5533E",
+  "Educação Física":"#4C7A54","Artes":"#9B4F6E"
+};
+const DEFAULT_SUBJECTS = Object.keys(SUBJECT_COLORS);
+
+let state = {
+  user: null,
+  view: "login",
+  authTab: "entrar",
+  materiaAberta: null,
+  provaFiltro: "todas",
+  provaAberta: null,
+  provaRespostas: {},
+  provaResultado: null,
+  topicoAberto: null,
+  showNovaMateria: false,
+};
+
+function subjColor(name){ return SUBJECT_COLORS[name] || "#5B6A87"; }
+
+async function sget(key){
+  try{ const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; }
+  catch(e){ return null; }
+}
+async function sset(key, val){
+  try{ await window.storage.set(key, JSON.stringify(val), true); }
+  catch(e){ console.error("storage set failed", key, e); }
+}
+
+async function ensureSeed(){
+  let materias = await sget("materias");
+  if(!materias){ materias = DEFAULT_SUBJECTS.slice(); await sset("materias", materias); }
+  let users = await sget("users");
+  if(!users){ users = []; await sset("users", users); }
+  let provas = await sget("provas");
+  if(!provas){ provas = []; await sset("provas", provas); }
+}
+
+function esc(s){ const d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
+function fmtDate(iso){ const d = new Date(iso); return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}); }
+
+function render(){
+  const shell = document.getElementById("shell");
+  if(state.view === "login"){
+    shell.innerHTML = renderAuth();
+    bindAuth();
+    return;
+  }
+  shell.innerHTML = renderSidebar() + `<div class="main" id="main">${renderMain()}</div>`;
+  bindSidebar();
+  bindMain();
+}
+
+/* ---------------- AUTH ---------------- */
+function renderAuth(){
+  const isEntrar = state.authTab === "entrar";
+  return `
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="brand"><span class="mark">Turma</span><span class="plus">+</span></div>
+      <div class="brand-sub">O espaço da turma: notas, provas e debates.</div>
+      <div class="tabbar">
+        <button data-tab="entrar" class="${isEntrar?'active':''}">Entrar</button>
+        <button data-tab="cadastrar" class="${!isEntrar?'active':''}">Criar conta</button>
+      </div>
+      ${isEntrar ? `
+        <form id="form-entrar">
+          <label>Nome completo</label>
+          <input type="text" id="l-nome" placeholder="Ex: Maria da Silva Souza" required>
+          <label>Senha</label>
+          <input type="password" id="l-senha" placeholder="Sua senha" required>
+          <div class="err" id="l-err" style="display:none;"></div>
+          <button class="btn btn-primary" type="submit">Entrar</button>
+        </form>
+        <div class="divider">ou</div>
+        <button class="btn btn-google" id="btn-google-login">Continuar com Google</button>
+      ` : `
+        <form id="form-cadastro">
+          <label>Nome completo</label>
+          <input type="text" id="c-nome" placeholder="Ex: João Pedro Alves" required>
+          <label>Email (opcional)</label>
+          <input type="email" id="c-email" placeholder="voce@email.com">
+          <label>Senha</label>
+          <input type="password" id="c-senha" placeholder="Crie uma senha" required>
+          <div class="err" id="c-err" style="display:none;"></div>
+          <button class="btn btn-primary" type="submit">Criar conta</button>
+        </form>
+        <div class="divider">ou</div>
+        <button class="btn btn-google" id="btn-google-signup">Continuar com Google</button>
+        <div id="google-box"></div>
+      `}
+      <div class="hint" style="margin-top:16px;">Protótipo: os dados ficam guardados no armazenamento deste app, não é um sistema com segurança de produção.</div>
+    </div>
+  </div>`;
+}
+
+function bindAuth(){
+  document.querySelectorAll(".tabbar button").forEach(b=>{
+    b.onclick = ()=>{ state.authTab = b.dataset.tab; render(); };
+  });
+
+  const fe = document.getElementById("form-entrar");
+  if(fe) fe.onsubmit = async (e)=>{
+    e.preventDefault();
+    const nome = document.getElementById("l-nome").value.trim();
+    const senha = document.getElementById("l-senha").value;
+    const users = await sget("users") || [];
+    const found = users.find(u => u.nome.toLowerCase() === nome.toLowerCase() && u.senha === senha);
+    const errEl = document.getElementById("l-err");
+    if(!found){
+      errEl.style.display = "block";
+      errEl.textContent = "Nome ou senha incorretos. Confira ou crie uma conta.";
+      return;
+    }
+    state.user = found;
+    state.view = "materias";
+    render();
+  };
+
+  const fc = document.getElementById("form-cadastro");
+  if(fc) fc.onsubmit = async (e)=>{
+    e.preventDefault();
+    const nome = document.getElementById("c-nome").value.trim();
+    const email = document.getElementById("c-email").value.trim();
+    const senha = document.getElementById("c-senha").value;
+    const errEl = document.getElementById("c-err");
+    if(nome.split(" ").filter(Boolean).length < 2){
+      errEl.style.display = "block";
+      errEl.textContent = "Digite seu nome completo (nome e sobrenome).";
+      return;
+    }
+    const users = await sget("users") || [];
+    if(users.find(u => u.nome.toLowerCase() === nome.toLowerCase())){
+      errEl.style.display = "block";
+      errEl.textContent = "Já existe uma conta com esse nome. Tente entrar.";
+      return;
+    }
+    const novo = { nome, email, senha, criadoEm: new Date().toISOString() };
+    users.push(novo);
+    await sset("users", users);
+    state.user = novo;
+    state.view = "materias";
+    render();
+  };
+
+  const bgl = document.getElementById("btn-google-login");
+  if(bgl) bgl.onclick = ()=>{ state.authTab = "cadastrar"; render(); showGoogleBox(); };
+  const bgs = document.getElementById("btn-google-signup");
+  if(bgs) bgs.onclick = showGoogleBox;
+}
+
+function showGoogleBox(){
+  const box = document.getElementById("google-box");
+  if(!box) return;
+  box.innerHTML = `
+    <div class="google-mini">
+      <label style="margin-top:0;">Email do Google</label>
+      <input type="email" id="g-email" placeholder="voce@gmail.com">
+      <label>Nome completo</label>
+      <input type="text" id="g-nome" placeholder="Como aparece no seu Google">
+      <button class="btn btn-primary btn-sm" style="margin-top:12px; width:100%;" id="g-confirm">Concluir cadastro com Google</button>
+      <div class="hint">Simulação: aqui entraria o login oficial do Google.</div>
+    </div>`;
+  document.getElementById("g-confirm").onclick = async ()=>{
+    const nome = document.getElementById("g-nome").value.trim();
+    const email = document.getElementById("g-email").value.trim();
+    if(nome.split(" ").filter(Boolean).length < 2 || !email){
+      alert("Preencha nome completo e email do Google.");
+      return;
+    }
+    const users = await sget("users") || [];
+    if(users.find(u => u.nome.toLowerCase() === nome.toLowerCase())){
+      alert("Já existe uma conta com esse nome.");
+      return;
+    }
+    const novo = { nome, email, senha:"(google)", criadoEm:new Date().toISOString(), google:true };
+    users.push(novo);
+    await sset("users", users);
+    state.user = novo;
+    state.view = "materias";
+    render();
+  };
+}
+
+/* ---------------- SIDEBAR ---------------- */
+function renderSidebar(){
+  const items = [
+    {id:"materias", label:"Matérias e notas"},
+    {id:"debates", label:"Debates"},
+    {id:"provas", label:"Provas da turma"},
+  ];
+  return `
+  <div class="sidebar">
+    <div class="side-brand">Turma<span>+</span></div>
+    ${items.map(i=>`<button class="navbtn ${state.view.startsWith(i.id)?'active':''}" data-view="${i.id}">${esc(i.label)}</button>`).join("")}
+    <div class="side-foot">
+      <div class="side-user">${esc(state.user.nome)}</div>
+      <button class="logout" id="btn-logout">Sair</button>
+    </div>
+  </div>`;
+}
+function bindSidebar(){
+  document.querySelectorAll(".navbtn").forEach(b=>{
+    b.onclick = ()=>{
+      state.view = b.dataset.view;
+      state.materiaAberta = null; state.topicoAberto = null; state.provaAberta = null; state.provaResultado = null;
+      render();
+    };
+  });
+  document.getElementById("btn-logout").onclick = ()=>{
+    state.user = null; state.view = "login"; render();
+  };
+}
+
+/* ---------------- MAIN ROUTER ---------------- */
+function renderMain(){
+  if(state.view === "materias") return state.materiaAberta ? renderMateriaDetalhe() : renderMateriasList();
+  if(state.view === "debates") return state.topicoAberto ? renderTopicoDetalhe() : renderDebatesList();
+  if(state.view === "provas") return state.provaAberta ? renderProvaDetalhe() : renderProvasList();
+  return "";
+}
+function bindMain(){
+  if(state.view === "materias") return state.materiaAberta ? bindMateriaDetalhe() : bindMateriasList();
+  if(state.view === "debates") return state.topicoAberto ? bindTopicoDetalhe() : bindDebatesList();
+  if(state.view === "provas") return state.provaAberta ? bindProvaDetalhe() : bindProvasList();
+}
+
+/* ---------------- MATÉRIAS / NOTAS ---------------- */
+let _materiasCache = null, _notasCache = null;
+
+async function loadMateriasNotas(){
+  _materiasCache = await sget("materias") || DEFAULT_SUBJECTS.slice();
+  _notasCache = await sget("notas:" + state.user.nome) || {};
+}
+
+function renderMateriasList(){
+  loadMateriasNotas().then(()=>{ document.getElementById("materias-grid").innerHTML = materiasGridHtml(); bindMateriasGrid(); });
+  return `
+    <h1 class="page-title">Matérias e notas</h1>
+    <p class="page-sub">Some suas provas em cada matéria e acompanhe sua média.</p>
+    <div class="toolbar">
+      <div></div>
+      <button class="btn btn-ghost btn-sm" id="btn-nova-materia">+ Nova matéria</button>
+    </div>
+    <div class="grid" id="materias-grid"><div class="empty">Carregando...</div></div>
+  `;
+}
+function materiasGridHtml(){
+  return _materiasCache.map(m=>{
+    const provas = (_notasCache[m] || []);
+    const soma = provas.reduce((a,p)=>a+Number(p.nota||0),0);
+    const media = provas.length ? (soma/provas.length) : 0;
+    return `
+    <div class="card subject-card" data-materia="${esc(m)}">
+      <div class="subject-name"><span class="subject-tab" style="background:${subjColor(m)}"></span>${esc(m)}</div>
+      <div class="subject-meta">${provas.length} prova${provas.length===1?"":"s"} lançada${provas.length===1?"":"s"}</div>
+      <div class="subject-stats">
+        <div><div class="stat-num">${soma.toFixed(1)}</div><div class="stat-label">soma</div></div>
+        <div><div class="stat-num">${media.toFixed(1)}</div><div class="stat-label">média</div></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+function bindMateriasGrid(){
+  document.querySelectorAll(".subject-card").forEach(c=>{
+    c.onclick = ()=>{ state.materiaAberta = c.dataset.materia; render(); };
+  });
+}
+function bindMateriasList(){
+  document.getElementById("btn-nova-materia").onclick = async ()=>{
+    const nome = prompt("Nome da nova matéria:");
+    if(!nome || !nome.trim()) return;
+    const materias = await sget("materias") || [];
+    if(materias.includes(nome.trim())){ alert("Essa matéria já existe."); return; }
+    materias.push(nome.trim());
+    await sset("materias", materias);
+    render();
+  };
+}
+
+function renderMateriaDetalhe(){
+  const m = state.materiaAberta;
+  return `
+    <button class="back" id="btn-voltar-materias">&larr; Todas as matérias</button>
+    <h1 class="page-title"><span class="subject-tab" style="background:${subjColor(m)}"></span> ${esc(m)}</h1>
+    <p class="page-sub">Lance suas notas de prova e veja a soma e a média em tempo real.</p>
+    <div class="card" id="materia-card">Carregando...</div>
+  `;
+}
+async function materiaCardHtml(){
+  const notas = await sget("notas:" + state.user.nome) || {};
+  const provas = notas[state.materiaAberta] || [];
+  const soma = provas.reduce((a,p)=>a+Number(p.nota||0),0);
+  const media = provas.length ? (soma/provas.length) : 0;
+  return `
+    <div class="subject-stats" style="margin-bottom:6px;">
+      <div><div class="stat-num">${soma.toFixed(1)}</div><div class="stat-label">soma total</div></div>
+      <div><div class="stat-num">${media.toFixed(1)}</div><div class="stat-label">média</div></div>
+      <div><div class="stat-num">${provas.length}</div><div class="stat-label">provas</div></div>
+    </div>
+    ${provas.length ? `
+    <table class="notas">
+      <thead><tr><th>Prova</th><th style="text-align:right;">Nota</th></tr></thead>
+      <tbody>
+        ${provas.map((p,i)=>`<tr><td>${esc(p.prova)}</td><td class="n">${Number(p.nota).toFixed(1)}</td></tr>`).join("")}
+      </tbody>
+    </table>` : `<div class="empty"><div class="em-title">Nenhuma nota ainda</div>Lance a nota da sua primeira prova abaixo.</div>`}
+    <div class="add-row">
+      <input type="text" class="prova-nome" id="np-nome" placeholder="Nome da prova (ex: Prova 1)">
+      <input type="number" class="prova-nota" id="np-nota" placeholder="Nota" min="0" max="10" step="0.1">
+      <button class="btn btn-primary btn-sm" id="np-add" style="margin-top:0;">Adicionar</button>
+    </div>
+    <div class="err" id="np-err" style="display:none;"></div>
+  `;
+}
+async function bindMateriaDetalhe(){
+  document.getElementById("btn-voltar-materias").onclick = ()=>{ state.materiaAberta = null; render(); };
+  const card = document.getElementById("materia-card");
+  card.innerHTML = await materiaCardHtml();
+  document.getElementById("np-add").onclick = async ()=>{
+    const nome = document.getElementById("np-nome").value.trim();
+    const notaStr = document.getElementById("np-nota").value;
+    const errEl = document.getElementById("np-err");
+    const nota = parseFloat(notaStr);
+    if(!nome || isNaN(nota) || nota < 0 || nota > 10){
+      errEl.style.display = "block";
+      errEl.textContent = "Informe o nome da prova e uma nota entre 0 e 10.";
+      return;
+    }
+    const notas = await sget("notas:" + state.user.nome) || {};
+    if(!notas[state.materiaAberta]) notas[state.materiaAberta] = [];
+    notas[state.materiaAberta].push({ prova: nome, nota: nota });
+    await sset("notas:" + state.user.nome, notas);
+    card.innerHTML = await materiaCardHtml();
+    bindMateriaCardInner();
+  };
+}
+function bindMateriaCardInner(){
+  document.getElementById("np-add").onclick = async ()=>{
+    const nome = document.getElementById("np-nome").value.trim();
+    const notaStr = document.getElementById("np-nota").value;
+    const errEl = document.getElementById("np-err");
+    const nota = parseFloat(notaStr);
+    if(!nome || isNaN(nota) || nota < 0 || nota > 10){
+      errEl.style.display = "block";
+      errEl.textContent = "Informe o nome da prova e uma nota entre 0 e 10.";
+      return;
+    }
+    const notas = await sget("notas:" + state.user.nome) || {};
+    if(!notas[state.materiaAberta]) notas[state.materiaAberta] = [];
+    notas[state.materiaAberta].push({ prova: nome, nota: nota });
+    await sset("notas:" + state.user.nome, notas);
+    const card = document.getElementById("materia-card");
+    card.innerHTML = await materiaCardHtml();
+    bindMateriaCardInner();
+  };
+}
+
+/* ---------------- DEBATES ---------------- */
+function renderDebatesList(){
+  loadMateriasNotas().then(async ()=>{
+    if(!state.debateMateria) state.debateMateria = _materiasCache[0];
+    document.getElementById("debates-body").innerHTML = await debatesBodyHtml();
+    bindDebatesBody();
+  });
+  return `
+    <h1 class="page-title">Debates</h1>
+    <p class="page-sub">Discuta temas de cada matéria com a turma.</p>
+    <div id="debates-body"><div class="empty">Carregando...</div></div>
+  `;
+}
+async function debatesBodyHtml(){
+  return `
+    <div class="chiprow" id="chip-materias" style="margin-bottom:18px;">
+      ${_materiasCache.map(m=>`<button class="chip ${state.debateMateria===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+    </div>
+    <div class="toolbar"><div></div><button class="btn btn-ghost btn-sm" id="btn-novo-topico">+ Novo tópico</button></div>
+    <div class="card" id="topicos-card">Carregando tópicos...</div>
+  `;
+}
+async function topicosCardHtml(){
+  const topicos = await sget("debates:" + state.debateMateria) || [];
+  if(!topicos.length) return `<div class="empty"><div class="em-title">Nenhum debate ainda</div>Seja o primeiro a abrir um tópico em ${esc(state.debateMateria)}.</div>`;
+  return topicos.slice().reverse().map(t=>`
+    <div class="topic" data-id="${t.id}">
+      <div class="topic-title">${esc(t.titulo)}</div>
+      <div class="topic-meta">por ${esc(t.autor)} · ${fmtDate(t.data)} · ${t.respostas.length} resposta${t.respostas.length===1?"":"s"}</div>
+    </div>`).join("");
+}
+function bindDebatesBody(){
+  document.querySelectorAll("#chip-materias .chip").forEach(c=>{
+    c.onclick = async ()=>{
+      state.debateMateria = c.dataset.m;
+      document.getElementById("debates-body").innerHTML = await debatesBodyHtml();
+      bindDebatesBody();
+    };
+  });
+  refreshTopicos();
+  document.getElementById("btn-novo-topico").onclick = ()=>openModal(`
+    <h3>Novo tópico — ${esc(state.debateMateria)}</h3>
+    <label>Título</label>
+    <input type="text" id="dt-titulo" placeholder="Ex: Qual a melhor forma de resolver equações do 2º grau?">
+    <label>Sua opinião / pergunta</label>
+    <textarea id="dt-texto" rows="4" placeholder="Escreva aqui..."></textarea>
+    <div class="err" id="dt-err" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="dt-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="dt-save" style="margin-top:0;">Publicar</button>
+    </div>
+  `, ()=>{
+    document.getElementById("dt-cancel").onclick = closeModal;
+    document.getElementById("dt-save").onclick = async ()=>{
+      const titulo = document.getElementById("dt-titulo").value.trim();
+      const texto = document.getElementById("dt-texto").value.trim();
+      if(!titulo || !texto){
+        const e = document.getElementById("dt-err"); e.style.display="block"; e.textContent="Preencha título e texto.";
+        return;
+      }
+      const topicos = await sget("debates:" + state.debateMateria) || [];
+      topicos.push({ id: Date.now().toString(36), titulo, texto, autor: state.user.nome, data: new Date().toISOString(), respostas: [] });
+      await sset("debates:" + state.debateMateria, topicos);
+      closeModal();
+      refreshTopicos();
+    };
+  });
+}
+async function refreshTopicos(){
+  const card = document.getElementById("topicos-card");
+  card.innerHTML = await topicosCardHtml();
+  card.querySelectorAll(".topic").forEach(t=>{
+    t.onclick = ()=>{ state.topicoAberto = t.dataset.id; render(); };
+  });
+}
+
+function renderTopicoDetalhe(){
+  loadTopico();
+  return `
+    <button class="back" id="btn-voltar-debates">&larr; ${esc(state.debateMateria)}</button>
+    <div id="topico-body"><div class="empty">Carregando...</div></div>
+  `;
+}
+async function loadTopico(){
+  const topicos = await sget("debates:" + state.debateMateria) || [];
+  const t = topicos.find(x=>x.id===state.topicoAberto);
+  const body = document.getElementById("topico-body");
+  if(!body) return;
+  if(!t){ body.innerHTML = `<div class="empty">Tópico não encontrado.</div>`; return; }
+  body.innerHTML = `
+    <h1 class="page-title">${esc(t.titulo)}</h1>
+    <p class="page-sub">por ${esc(t.autor)} · ${fmtDate(t.data)}</p>
+    <div class="card"><p style="margin:0; line-height:1.6;">${esc(t.texto)}</p></div>
+    <h3 style="margin:22px 0 10px; font-family:var(--serif);">Respostas (${t.respostas.length})</h3>
+    ${t.respostas.map(r=>`
+      <div class="reply">
+        <div class="reply-meta">${esc(r.autor)} · ${fmtDate(r.data)}</div>
+        <div>${esc(r.texto)}</div>
+      </div>`).join("") || `<div class="hint">Nenhuma resposta ainda.</div>`}
+    <div class="add-row" style="align-items:flex-start;">
+      <textarea id="reply-texto" rows="2" placeholder="Escreva sua resposta..." style="flex:1;"></textarea>
+      <button class="btn btn-primary btn-sm" id="reply-add" style="margin-top:0;">Responder</button>
+    </div>
+  `;
+  document.getElementById("reply-add").onclick = async ()=>{
+    const texto = document.getElementById("reply-texto").value.trim();
+    if(!texto) return;
+    const topicos2 = await sget("debates:" + state.debateMateria) || [];
+    const t2 = topicos2.find(x=>x.id===state.topicoAberto);
+    t2.respostas.push({ autor: state.user.nome, texto, data: new Date().toISOString() });
+    await sset("debates:" + state.debateMateria, topicos2);
+    loadTopico();
+  };
+}
+function bindTopicoDetalhe(){
+  document.getElementById("btn-voltar-debates").onclick = ()=>{ state.topicoAberto = null; render(); };
+}
+
+/* ---------------- PROVAS (feitas pelos alunos) ---------------- */
+function renderProvasList(){
+  loadMateriasNotas().then(async ()=>{
+    document.getElementById("provas-body").innerHTML = await provasBodyHtml();
+    bindProvasBody();
+  });
+  return `
+    <h1 class="page-title">Provas da turma</h1>
+    <p class="page-sub">Provas criadas pelos próprios alunos para testar os colegas.</p>
+    <div id="provas-body"><div class="empty">Carregando...</div></div>
+  `;
+}
+async function provasBodyHtml(){
+  return `
+    <div class="chiprow" id="chip-provas-materias" style="margin-bottom:14px;">
+      <button class="chip ${state.provaFiltro==='todas'?'active':''}" data-m="todas">Todas</button>
+      ${_materiasCache.map(m=>`<button class="chip ${state.provaFiltro===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+    </div>
+    <div class="toolbar"><div></div><button class="btn btn-ghost btn-sm" id="btn-nova-prova">+ Criar prova</button></div>
+    <div class="grid" id="provas-grid">Carregando...</div>
+  `;
+}
+async function provasGridHtml(){
+  const provas = await sget("provas") || [];
+  const filtradas = state.provaFiltro === "todas" ? provas : provas.filter(p=>p.materia===state.provaFiltro);
+  if(!filtradas.length) return `<div class="empty"><div class="em-title">Nenhuma prova por aqui</div>Crie a primeira prova para essa matéria.</div>`;
+  return filtradas.slice().reverse().map(p=>`
+    <div class="card subject-card" data-id="${p.id}">
+      <div class="subject-name"><span class="subject-tab" style="background:${subjColor(p.materia)}"></span>${esc(p.titulo)}</div>
+      <div class="subject-meta">${esc(p.materia)} · por ${esc(p.autor)}</div>
+      <div class="subject-stats">
+        <span class="badge badge-yellow">${p.perguntas.length} pergunta${p.perguntas.length===1?"":"s"}</span>
+      </div>
+    </div>`).join("");
+}
+function bindProvasBody(){
+  document.querySelectorAll("#chip-provas-materias .chip").forEach(c=>{
+    c.onclick = async ()=>{
+      state.provaFiltro = c.dataset.m;
+      document.getElementById("provas-body").innerHTML = await provasBodyHtml();
+      bindProvasBody();
+    };
+  });
+  refreshProvasGrid();
+  document.getElementById("btn-nova-prova").onclick = openNovaProvaModal;
+}
+async function refreshProvasGrid(){
+  const grid = document.getElementById("provas-grid");
+  grid.innerHTML = await provasGridHtml();
+  grid.querySelectorAll(".subject-card").forEach(c=>{
+    c.onclick = ()=>{ state.provaAberta = c.dataset.id; state.provaRespostas = {}; state.provaResultado = null; render(); };
+  });
+}
+function bindProvasList(){}
+
+let novaProvaPerguntas = [];
+function openNovaProvaModal(){
+  novaProvaPerguntas = [{ enunciado:"", opcoes:["","","",""], correta:0 }];
+  renderNovaProvaModal();
+}
+function renderNovaProvaModal(){
+  openModal(`
+    <h3>Criar prova</h3>
+    <label>Título da prova</label>
+    <input type="text" id="pv-titulo" placeholder="Ex: Revisão de frações">
+    <label>Matéria</label>
+    <select id="pv-materia">
+      ${_materiasCache.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("")}
+    </select>
+    <div id="pv-perguntas"></div>
+    <button class="btn btn-ghost btn-sm" id="pv-add-pergunta" style="margin-top:12px;">+ Adicionar pergunta</button>
+    <div class="err" id="pv-err" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="pv-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="pv-save" style="margin-top:0;">Publicar prova</button>
+    </div>
+  `, ()=>{
+    renderPerguntasEditor();
+    document.getElementById("pv-add-pergunta").onclick = ()=>{
+      novaProvaPerguntas.push({ enunciado:"", opcoes:["","","",""], correta:0 });
+      renderPerguntasEditor();
+    };
+    document.getElementById("pv-cancel").onclick = closeModal;
+    document.getElementById("pv-save").onclick = salvarNovaProva;
+  });
+}
+function renderPerguntasEditor(){
+  const wrap = document.getElementById("pv-perguntas");
+  wrap.innerHTML = novaProvaPerguntas.map((p,pi)=>`
+    <div class="pergunta-block">
+      <h4>Pergunta ${pi+1} ${novaProvaPerguntas.length>1?`<button class="btn btn-ghost btn-sm" data-rm="${pi}" style="float:right; padding:2px 8px;">Remover</button>`:""}</h4>
+      <input type="text" data-pi="${pi}" class="pv-enunciado" placeholder="Digite a pergunta" value="${esc(p.enunciado)}" style="margin-bottom:8px;">
+      ${p.opcoes.map((op,oi)=>`
+        <div class="opt-input">
+          <input type="radio" name="correta-${pi}" data-pi="${pi}" data-oi="${oi}" class="pv-correta" ${p.correta===oi?"checked":""}>
+          <input type="text" data-pi="${pi}" data-oi="${oi}" class="pv-opcao" placeholder="Opção ${oi+1}" value="${esc(op)}">
+        </div>`).join("")}
+    </div>
+  `).join("");
+  wrap.querySelectorAll(".pv-enunciado").forEach(el=>{
+    el.oninput = ()=>{ novaProvaPerguntas[el.dataset.pi].enunciado = el.value; };
+  });
+  wrap.querySelectorAll(".pv-opcao").forEach(el=>{
+    el.oninput = ()=>{ novaProvaPerguntas[el.dataset.pi].opcoes[el.dataset.oi] = el.value; };
+  });
+  wrap.querySelectorAll(".pv-correta").forEach(el=>{
+    el.onchange = ()=>{ novaProvaPerguntas[el.dataset.pi].correta = Number(el.dataset.oi); };
+  });
+  wrap.querySelectorAll("[data-rm]").forEach(el=>{
+    el.onclick = ()=>{ novaProvaPerguntas.splice(Number(el.dataset.rm),1); renderPerguntasEditor(); };
+  });
+}
+async function salvarNovaProva(){
+  const titulo = document.getElementById("pv-titulo").value.trim();
+  const materia = document.getElementById("pv-materia").value;
+  const errEl = document.getElementById("pv-err");
+  if(!titulo){ errEl.style.display="block"; errEl.textContent="Dê um título para a prova."; return; }
+  for(const p of novaProvaPerguntas){
+    if(!p.enunciado.trim() || p.opcoes.some(o=>!o.trim())){
+      errEl.style.display="block"; errEl.textContent="Preencha todas as perguntas e as 4 opções de cada uma.";
+      return;
+    }
+  }
+  const provas = await sget("provas") || [];
+  provas.push({ id: Date.now().toString(36), titulo, materia, autor: state.user.nome, data: new Date().toISOString(), perguntas: novaProvaPerguntas });
+  await sset("provas", provas);
+  closeModal();
+  refreshProvasGrid();
+}
+
+function renderProvaDetalhe(){
+  loadProvaDetalhe();
+  return `
+    <button class="back" id="btn-voltar-provas">&larr; Provas da turma</button>
+    <div id="prova-body"><div class="empty">Carregando...</div></div>
+  `;
+}
+async function loadProvaDetalhe(){
+  const provas = await sget("provas") || [];
+  const p = provas.find(x=>x.id===state.provaAberta);
+  const body = document.getElementById("prova-body");
+  if(!body) return;
+  if(!p){ body.innerHTML = `<div class="empty">Prova não encontrada.</div>`; return; }
+
+  if(state.provaResultado !== null){
+    body.innerHTML = `
+      <h1 class="page-title">${esc(p.titulo)}</h1>
+      <p class="page-sub">${esc(p.materia)} · por ${esc(p.autor)}</p>
+      <div class="card" style="text-align:center; padding:30px;">
+        <div class="stat-label">seu resultado</div>
+        <div class="stat-num" style="font-size:40px; margin:8px 0;">${state.provaResultado.acertos} / ${p.perguntas.length}</div>
+        <button class="btn btn-primary" id="pv-refazer" style="width:auto;">Refazer</button>
+      </div>
+    `;
+    document.getElementById("pv-refazer").onclick = ()=>{ state.provaResultado = null; state.provaRespostas = {}; loadProvaDetalhe(); };
+    return;
+  }
+
+  body.innerHTML = `
+    <h1 class="page-title">${esc(p.titulo)}</h1>
+    <p class="page-sub">${esc(p.materia)} · por ${esc(p.autor)} · ${p.perguntas.length} pergunta${p.perguntas.length===1?"":"s"}</p>
+    ${p.perguntas.map((q,qi)=>`
+      <div class="card" style="margin-bottom:12px;">
+        <div style="font-weight:700; margin-bottom:10px;">${qi+1}. ${esc(q.enunciado)}</div>
+        ${q.opcoes.map((op,oi)=>`
+          <div class="qopt ${state.provaRespostas[qi]===oi?'selected':''}" data-qi="${qi}" data-oi="${oi}">${esc(op)}</div>
+        `).join("")}
+      </div>
+    `).join("")}
+    <div class="err" id="pv-resp-err" style="display:none;"></div>
+    <button class="btn btn-primary" id="pv-enviar">Enviar respostas</button>
+  `;
+  body.querySelectorAll(".qopt").forEach(el=>{
+    el.onclick = ()=>{
+      state.provaRespostas[el.dataset.qi] = Number(el.dataset.oi);
+      loadProvaDetalhe();
+    };
+  });
+  document.getElementById("pv-enviar").onclick = ()=>{
+    if(Object.keys(state.provaRespostas).length < p.perguntas.length){
+      const e = document.getElementById("pv-resp-err"); e.style.display="block"; e.textContent="Responda todas as perguntas antes de enviar.";
+      return;
+    }
+    let acertos = 0;
+    p.perguntas.forEach((q,qi)=>{ if(state.provaRespostas[qi] === q.correta) acertos++; });
+    state.provaResultado = { acertos };
+    loadProvaDetalhe();
+  };
+}
+function bindProvaDetalhe(){
+  document.getElementById("btn-voltar-provas").onclick = ()=>{ state.provaAberta = null; state.provaResultado = null; render(); };
+}
+
+/* ---------------- MODAL ---------------- */
+function openModal(html, onMount){
+  closeModal();
+  const bg = document.createElement("div");
+  bg.className = "modalbg";
+  bg.id = "modalbg";
+  bg.innerHTML = `<div class="modal">${html}</div>`;
+  bg.onclick = (e)=>{ if(e.target === bg) closeModal(); };
+  document.body.appendChild(bg);
+  if(onMount) onMount();
+}
+function closeModal(){
+  const bg = document.getElementById("modalbg");
+  if(bg) bg.remove();
+}
+
+/* ---------------- INIT ---------------- */
+(async function init(){
+  await ensureSeed();
+  render();
+})();
+</script>
+</body>
+</html>
