@@ -186,6 +186,48 @@
 
   ::-webkit-scrollbar{ width:8px; }
   ::-webkit-scrollbar-thumb{ background:var(--rule); border-radius:8px; }
+
+  /* ---------- INÍCIO / DASHBOARD ---------- */
+  .stat-cards{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; margin-bottom:26px; }
+  .stat-card{ background:var(--white); border:1px solid var(--rule); border-radius:10px; padding:14px 16px; box-shadow:var(--shadow); }
+  .stat-card .stat-num{ font-size:26px; }
+  .section-title{ font-family:var(--serif); font-size:17px; margin:0 0 12px; display:flex; align-items:center; justify-content:space-between; }
+  .section-title a.link-mini{ font-family:var(--sans); font-size:12px; font-weight:700; color:var(--red); cursor:pointer; text-decoration:none; }
+  .home-section{ margin-bottom:28px; }
+
+  .lembrete-mini{ display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-bottom:1px solid var(--rule); }
+  .lembrete-mini:last-child{ border-bottom:none; }
+  .lembrete-mini .lm-dot{ width:8px; height:8px; border-radius:50%; margin-top:5px; flex-shrink:0; }
+
+  .mural-thumbs{ display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:10px; }
+  .mural-thumb{ position:relative; border-radius:8px; overflow:hidden; border:1px solid var(--rule); cursor:pointer; aspect-ratio:1; }
+  .mural-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+  /* ---------- MURAL DO QUADRO ---------- */
+  .mural-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); gap:16px; }
+  .mural-card{ background:var(--white); border:1px solid var(--rule); border-radius:10px; overflow:hidden; box-shadow:var(--shadow); cursor:pointer; }
+  .mural-card img{ width:100%; height:140px; object-fit:cover; display:block; background:var(--paper-2); }
+  .mural-card .mc-body{ padding:10px 12px; }
+  .mural-card .mc-legenda{ font-size:13px; font-weight:700; margin:0 0 3px; }
+  .mural-card .mc-meta{ font-size:11px; color:var(--ink-soft); }
+  .upload-box{ border:2px dashed var(--rule); border-radius:10px; padding:22px; text-align:center; }
+  .upload-box input[type=file]{ display:block; margin:10px auto 0; }
+  .lightbox{ position:fixed; inset:0; background:rgba(35,50,77,0.75); display:flex; align-items:center; justify-content:center; z-index:60; padding:24px; }
+  .lightbox img{ max-width:100%; max-height:78vh; border-radius:8px; display:block; margin:0 auto; }
+  .lightbox-card{ background:var(--white); border-radius:12px; padding:16px; max-width:640px; width:100%; }
+  .lightbox-close{ text-align:right; }
+  .lightbox-close button{ background:none; border:none; font-size:20px; color:var(--ink-soft); cursor:pointer; line-height:1; }
+
+  /* ---------- LEMBRETES ---------- */
+  .lembrete-row{ display:flex; align-items:flex-start; gap:12px; padding:13px 0; border-bottom:1px solid var(--rule); }
+  .lembrete-row:last-child{ border-bottom:none; }
+  .lembrete-row input[type=checkbox]{ width:18px; height:18px; margin-top:2px; flex-shrink:0; accent-color:var(--green); }
+  .lembrete-row.feito .lr-titulo{ text-decoration:line-through; color:var(--ink-soft); }
+  .lr-titulo{ font-weight:700; font-size:14px; margin:0 0 2px; }
+  .lr-desc{ font-size:13px; color:var(--ink-soft); margin:0 0 4px; }
+  .lr-meta{ font-size:11px; color:var(--ink-soft); display:flex; gap:8px; align-items:center; }
+  .lr-del{ background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:12px; margin-left:auto; padding:0; font-family:var(--sans); }
+  .lr-del:hover{ color:var(--red); }
 </style>
 </head>
 <body>
@@ -210,6 +252,10 @@ let state = {
   provaResultado: null,
   topicoAberto: null,
   showNovaMateria: false,
+  muralMateria: null,
+  muralLightbox: null,
+  lembretesMateria: "todas",
+  lembretesFiltro: "pendentes",
 };
 
 function subjColor(name){ return SUBJECT_COLORS[name] || "#5B6A87"; }
@@ -230,6 +276,32 @@ async function ensureSeed(){
   if(!users){ users = []; await sset("users", users); }
   let provas = await sget("provas");
   if(!provas){ provas = []; await sset("provas", provas); }
+}
+
+/* ---------------- IMAGEM (comprime antes de salvar) ---------------- */
+function lerEComprimirImagem(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onerror = ()=> reject(new Error("Falha ao ler o arquivo"));
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onerror = ()=> reject(new Error("Falha ao carregar a imagem"));
+      img.onload = ()=>{
+        const maxDim = 1000;
+        let w = img.width, h = img.height;
+        if(w > maxDim || h > maxDim){
+          if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+          else{ w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function esc(s){ const d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
@@ -268,8 +340,6 @@ function renderAuth(){
           <div class="err" id="l-err" style="display:none;"></div>
           <button class="btn btn-primary" type="submit">Entrar</button>
         </form>
-        <div class="divider">ou</div>
-        <button class="btn btn-google" id="btn-google-login">Continuar com Google</button>
       ` : `
         <form id="form-cadastro">
           <label>Nome completo</label>
@@ -281,9 +351,6 @@ function renderAuth(){
           <div class="err" id="c-err" style="display:none;"></div>
           <button class="btn btn-primary" type="submit">Criar conta</button>
         </form>
-        <div class="divider">ou</div>
-        <button class="btn btn-google" id="btn-google-signup">Continuar com Google</button>
-        <div id="google-box"></div>
       `}
       <div class="hint" style="margin-top:16px;">Protótipo: os dados ficam guardados no armazenamento deste app, não é um sistema com segurança de produção.</div>
     </div>
@@ -309,7 +376,7 @@ function bindAuth(){
       return;
     }
     state.user = found;
-    state.view = "materias";
+    state.view = "inicio";
     render();
   };
 
@@ -335,45 +402,7 @@ function bindAuth(){
     users.push(novo);
     await sset("users", users);
     state.user = novo;
-    state.view = "materias";
-    render();
-  };
-
-  const bgl = document.getElementById("btn-google-login");
-  if(bgl) bgl.onclick = ()=>{ state.authTab = "cadastrar"; render(); showGoogleBox(); };
-  const bgs = document.getElementById("btn-google-signup");
-  if(bgs) bgs.onclick = showGoogleBox;
-}
-
-function showGoogleBox(){
-  const box = document.getElementById("google-box");
-  if(!box) return;
-  box.innerHTML = `
-    <div class="google-mini">
-      <label style="margin-top:0;">Email do Google</label>
-      <input type="email" id="g-email" placeholder="voce@gmail.com">
-      <label>Nome completo</label>
-      <input type="text" id="g-nome" placeholder="Como aparece no seu Google">
-      <button class="btn btn-primary btn-sm" style="margin-top:12px; width:100%;" id="g-confirm">Concluir cadastro com Google</button>
-      <div class="hint">Simulação: aqui entraria o login oficial do Google.</div>
-    </div>`;
-  document.getElementById("g-confirm").onclick = async ()=>{
-    const nome = document.getElementById("g-nome").value.trim();
-    const email = document.getElementById("g-email").value.trim();
-    if(nome.split(" ").filter(Boolean).length < 2 || !email){
-      alert("Preencha nome completo e email do Google.");
-      return;
-    }
-    const users = await sget("users") || [];
-    if(users.find(u => u.nome.toLowerCase() === nome.toLowerCase())){
-      alert("Já existe uma conta com esse nome.");
-      return;
-    }
-    const novo = { nome, email, senha:"(google)", criadoEm:new Date().toISOString(), google:true };
-    users.push(novo);
-    await sset("users", users);
-    state.user = novo;
-    state.view = "materias";
+    state.view = "inicio";
     render();
   };
 }
@@ -381,7 +410,10 @@ function showGoogleBox(){
 /* ---------------- SIDEBAR ---------------- */
 function renderSidebar(){
   const items = [
+    {id:"inicio", label:"Início"},
     {id:"materias", label:"Matérias e notas"},
+    {id:"mural", label:"Mural do quadro"},
+    {id:"lembretes", label:"Lembretes"},
     {id:"debates", label:"Debates"},
     {id:"provas", label:"Provas da turma"},
   ];
@@ -390,7 +422,10 @@ function renderSidebar(){
     <div class="side-brand">Turma<span>+</span></div>
     ${items.map(i=>`<button class="navbtn ${state.view.startsWith(i.id)?'active':''}" data-view="${i.id}">${esc(i.label)}</button>`).join("")}
     <div class="side-foot">
-      <div class="side-user">${esc(state.user.nome)}</div>
+      <div class="side-user" style="display:flex; align-items:center; gap:8px;">
+        ${state.user.foto ? `<img src="${state.user.foto}" alt="" style="width:24px; height:24px; border-radius:50%;">` : ""}
+        <span>${esc(state.user.nome)}</span>
+      </div>
       <button class="logout" id="btn-logout">Sair</button>
     </div>
   </div>`;
@@ -400,6 +435,7 @@ function bindSidebar(){
     b.onclick = ()=>{
       state.view = b.dataset.view;
       state.materiaAberta = null; state.topicoAberto = null; state.provaAberta = null; state.provaResultado = null;
+      state.muralLightbox = null;
       render();
     };
   });
@@ -410,13 +446,19 @@ function bindSidebar(){
 
 /* ---------------- MAIN ROUTER ---------------- */
 function renderMain(){
+  if(state.view === "inicio") return renderInicio();
   if(state.view === "materias") return state.materiaAberta ? renderMateriaDetalhe() : renderMateriasList();
+  if(state.view === "mural") return renderMural();
+  if(state.view === "lembretes") return renderLembretes();
   if(state.view === "debates") return state.topicoAberto ? renderTopicoDetalhe() : renderDebatesList();
   if(state.view === "provas") return state.provaAberta ? renderProvaDetalhe() : renderProvasList();
   return "";
 }
 function bindMain(){
+  if(state.view === "inicio") return bindInicio();
   if(state.view === "materias") return state.materiaAberta ? bindMateriaDetalhe() : bindMateriasList();
+  if(state.view === "mural") return bindMural();
+  if(state.view === "lembretes") return bindLembretes();
   if(state.view === "debates") return state.topicoAberto ? bindTopicoDetalhe() : bindDebatesList();
   if(state.view === "provas") return state.provaAberta ? bindProvaDetalhe() : bindProvasList();
 }
@@ -551,6 +593,311 @@ function bindMateriaCardInner(){
     bindMateriaCardInner();
   };
 }
+
+/* ---------------- INÍCIO / DASHBOARD ---------------- */
+function renderInicio(){
+  loadInicio();
+  return `
+    <h1 class="page-title">Oi, ${esc(state.user.nome.split(" ")[0])}</h1>
+    <p class="page-sub">Um resumo rápido da sua turma.</p>
+    <div id="inicio-body"><div class="empty">Carregando...</div></div>
+  `;
+}
+async function loadInicio(){
+  const body = document.getElementById("inicio-body");
+  if(!body) return;
+  const materias = await sget("materias") || DEFAULT_SUBJECTS.slice();
+  const notas = await sget("notas:" + state.user.nome) || {};
+  let totalNotas = 0, somaNotas = 0;
+  materias.forEach(m=>{ (notas[m]||[]).forEach(p=>{ totalNotas++; somaNotas += Number(p.nota||0); }); });
+  const mediaGeral = totalNotas ? (somaNotas/totalNotas) : 0;
+
+  let lembretesTodos = [];
+  for(const m of materias){
+    const l = await sget("lembretes:" + m) || [];
+    lembretesTodos.push(...l.map(x=>({...x, materia:m})));
+  }
+  const pendentes = lembretesTodos.filter(l=>!l.feito).sort((a,b)=> (a.data||"9999").localeCompare(b.data||"9999"));
+
+  let fotosTodas = [];
+  for(const m of materias){
+    const f = await sget("mural:" + m) || [];
+    fotosTodas.push(...f.map(x=>({...x, materia:m})));
+  }
+  fotosTodas.sort((a,b)=> b.data.localeCompare(a.data));
+
+  body.innerHTML = `
+    <div class="stat-cards">
+      <div class="stat-card"><div class="stat-num">${materias.length}</div><div class="stat-label">matérias</div></div>
+      <div class="stat-card"><div class="stat-num">${mediaGeral.toFixed(1)}</div><div class="stat-label">média geral</div></div>
+      <div class="stat-card"><div class="stat-num">${pendentes.length}</div><div class="stat-label">lembretes pendentes</div></div>
+      <div class="stat-card"><div class="stat-num">${fotosTodas.length}</div><div class="stat-label">fotos no mural</div></div>
+    </div>
+
+    <div class="home-section">
+      <div class="section-title">Lembretes próximos <a class="link-mini" data-goto="lembretes">ver todos</a></div>
+      <div class="card">
+        ${pendentes.length ? pendentes.slice(0,4).map(l=>`
+          <div class="lembrete-mini">
+            <span class="lm-dot" style="background:${subjColor(l.materia)}"></span>
+            <div>
+              <div style="font-weight:700; font-size:13px;">${esc(l.titulo)}</div>
+              <div style="font-size:11px; color:var(--ink-soft);">${esc(l.materia)}${l.data ? " · " + fmtDate(l.data) : ""}</div>
+            </div>
+          </div>`).join("") : `<div class="hint">Nenhum lembrete pendente. Bom sinal.</div>`}
+      </div>
+    </div>
+
+    <div class="home-section">
+      <div class="section-title">Últimas fotos do quadro <a class="link-mini" data-goto="mural">ver mural</a></div>
+      ${fotosTodas.length ? `
+        <div class="mural-thumbs">
+          ${fotosTodas.slice(0,6).map(f=>`<div class="mural-thumb" data-foto='${esc(JSON.stringify({legenda:f.legenda, materia:f.materia, autor:f.autor, data:f.data, foto:f.foto}))}'><img src="${f.foto}" alt=""></div>`).join("")}
+        </div>` : `<div class="card"><div class="hint">Ninguém tirou foto do quadro ainda.</div></div>`}
+    </div>
+  `;
+  body.querySelectorAll(".mural-thumb").forEach(el=>{
+    el.onclick = ()=>{ state.muralLightbox = JSON.parse(el.dataset.foto); renderLightbox(); };
+  });
+}
+function bindInicio(){
+  document.querySelectorAll("[data-goto]").forEach(el=>{
+    el.onclick = ()=>{ state.view = el.dataset.goto; render(); };
+  });
+}
+
+/* ---------------- MURAL DO QUADRO ---------------- */
+function renderMural(){
+  loadMateriasNotas().then(async ()=>{
+    if(!state.muralMateria) state.muralMateria = _materiasCache[0];
+    document.getElementById("mural-conteudo").innerHTML = await muralConteudoHtml();
+    bindMuralConteudo();
+  });
+  return `
+    <h1 class="page-title">Mural do quadro</h1>
+    <p class="page-sub">Tire uma foto do quadro e guarde para o pessoal que faltou ou quer revisar.</p>
+    <div id="mural-conteudo"><div class="empty">Carregando...</div></div>
+  `;
+}
+async function muralConteudoHtml(){
+  return `
+    <div class="chiprow" id="chip-mural-materias" style="margin-bottom:18px;">
+      ${_materiasCache.map(m=>`<button class="chip ${state.muralMateria===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+    </div>
+    <div class="upload-box">
+      <div style="font-weight:700;">Adicionar foto do quadro — ${esc(state.muralMateria)}</div>
+      <div class="hint">Tire uma foto ou escolha da galeria.</div>
+      <input type="file" id="mural-file" accept="image/*" capture="environment">
+      <input type="text" id="mural-legenda" placeholder="Legenda (ex: matéria da prova de sexta)" style="margin-top:10px;">
+      <button class="btn btn-primary btn-sm" id="mural-enviar" style="width:auto; margin-top:12px;">Publicar no mural</button>
+      <div class="err" id="mural-err" style="display:none;"></div>
+    </div>
+    <div class="mural-grid" id="mural-grid" style="margin-top:20px;"></div>
+  `;
+}
+function bindMuralConteudo(){
+  document.querySelectorAll("#chip-mural-materias .chip").forEach(c=>{
+    c.onclick = async ()=>{
+      state.muralMateria = c.dataset.m;
+      document.getElementById("mural-conteudo").innerHTML = await muralConteudoHtml();
+      bindMuralConteudo();
+    };
+  });
+  refreshMuralGrid();
+  document.getElementById("mural-enviar").onclick = async ()=>{
+    const fileInput = document.getElementById("mural-file");
+    const legenda = document.getElementById("mural-legenda").value.trim();
+    const errEl = document.getElementById("mural-err");
+    const file = fileInput.files[0];
+    if(!file){ errEl.style.display="block"; errEl.textContent="Escolha uma foto primeiro."; return; }
+    const btn = document.getElementById("mural-enviar");
+    btn.disabled = true; btn.textContent = "Enviando...";
+    try{
+      const dataUrl = await lerEComprimirImagem(file);
+      const mural = await sget("mural:" + state.muralMateria) || [];
+      mural.push({ id: Date.now().toString(36), foto: dataUrl, legenda: legenda || "Sem legenda", autor: state.user.nome, data: new Date().toISOString() });
+      await sset("mural:" + state.muralMateria, mural);
+      fileInput.value = ""; document.getElementById("mural-legenda").value = "";
+      errEl.style.display = "none";
+      refreshMuralGrid();
+    }catch(e){
+      errEl.style.display="block"; errEl.textContent="Não deu para processar essa imagem. Tente outra foto.";
+    }
+    btn.disabled = false; btn.textContent = "Publicar no mural";
+  };
+}
+async function refreshMuralGrid(){
+  const grid = document.getElementById("mural-grid");
+  const fotos = await sget("mural:" + state.muralMateria) || [];
+  if(!fotos.length){ grid.innerHTML = `<div class="empty"><div class="em-title">Mural vazio</div>Ninguém postou foto do quadro de ${esc(state.muralMateria)} ainda.</div>`; return; }
+  grid.innerHTML = fotos.slice().reverse().map(f=>`
+    <div class="mural-card" data-foto='${esc(JSON.stringify(f))}'>
+      <img src="${f.foto}" alt="">
+      <div class="mc-body">
+        <div class="mc-legenda">${esc(f.legenda)}</div>
+        <div class="mc-meta">${esc(f.autor)} · ${fmtDate(f.data)}</div>
+      </div>
+    </div>`).join("");
+  grid.querySelectorAll(".mural-card").forEach(el=>{
+    el.onclick = ()=>{ const d = JSON.parse(el.dataset.foto); state.muralLightbox = { ...d, materia: state.muralMateria }; renderLightbox(); };
+  });
+}
+function bindMural(){}
+function renderLightbox(){
+  const f = state.muralLightbox;
+  if(!f) return;
+  const wrap = document.createElement("div");
+  wrap.className = "lightbox";
+  wrap.id = "lightbox";
+  wrap.innerHTML = `
+    <div class="lightbox-card">
+      <div class="lightbox-close"><button id="lb-close" aria-label="Fechar">&times;</button></div>
+      <img src="${f.foto}" alt="">
+      <div style="margin-top:10px;">
+        <div style="font-weight:700;">${esc(f.legenda)}</div>
+        <div class="hint">${esc(f.materia || "")}${f.autor ? " · " + esc(f.autor) : ""}${f.data ? " · " + fmtDate(f.data) : ""}</div>
+      </div>
+    </div>`;
+  wrap.onclick = (e)=>{ if(e.target === wrap) closeLightbox(); };
+  document.body.appendChild(wrap);
+  document.getElementById("lb-close").onclick = closeLightbox;
+}
+function closeLightbox(){
+  const el = document.getElementById("lightbox");
+  if(el) el.remove();
+  state.muralLightbox = null;
+}
+
+/* ---------------- LEMBRETES DE TEMA ---------------- */
+function renderLembretes(){
+  loadMateriasNotas().then(async ()=>{
+    document.getElementById("lembretes-conteudo").innerHTML = await lembretesConteudoHtml();
+    bindLembretesConteudo();
+  });
+  return `
+    <h1 class="page-title">Lembretes de tema</h1>
+    <p class="page-sub">Anote o que precisa estudar ou revisar antes da próxima prova.</p>
+    <div id="lembretes-conteudo"><div class="empty">Carregando...</div></div>
+  `;
+}
+async function lembretesConteudoHtml(){
+  return `
+    <div class="toolbar">
+      <div class="chiprow" id="chip-lembretes-materias">
+        <button class="chip ${state.lembretesMateria==='todas'?'active':''}" data-m="todas">Todas</button>
+        ${_materiasCache.map(m=>`<button class="chip ${state.lembretesMateria===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btn-novo-lembrete">+ Novo lembrete</button>
+    </div>
+    <div class="chiprow" style="margin-bottom:14px;">
+      <button class="chip ${state.lembretesFiltro==='pendentes'?'active':''}" data-f="pendentes">Pendentes</button>
+      <button class="chip ${state.lembretesFiltro==='todos'?'active':''}" data-f="todos">Todos</button>
+    </div>
+    <div class="card" id="lembretes-lista">Carregando...</div>
+  `;
+}
+async function lembretesListaHtml(){
+  const materiasAlvo = state.lembretesMateria === "todas" ? _materiasCache : [state.lembretesMateria];
+  let itens = [];
+  for(const m of materiasAlvo){
+    const l = await sget("lembretes:" + m) || [];
+    itens.push(...l.map(x=>({...x, materia:m})));
+  }
+  if(state.lembretesFiltro === "pendentes") itens = itens.filter(x=>!x.feito);
+  itens.sort((a,b)=> (a.data||"9999").localeCompare(b.data||"9999"));
+  if(!itens.length) return `<div class="empty"><div class="em-title">Nada por aqui</div>Crie um lembrete de tema para não esquecer o que estudar.</div>`;
+  return itens.map(l=>`
+    <div class="lembrete-row ${l.feito?'feito':''}" data-id="${l.id}" data-materia="${esc(l.materia)}">
+      <input type="checkbox" class="lr-check" ${l.feito?"checked":""}>
+      <div style="flex:1;">
+        <div class="lr-titulo">${esc(l.titulo)}</div>
+        ${l.descricao ? `<div class="lr-desc">${esc(l.descricao)}</div>` : ""}
+        <div class="lr-meta">
+          <span class="subject-tab" style="background:${subjColor(l.materia)}; width:8px; height:8px;"></span>
+          ${esc(l.materia)}${l.data ? " · vence " + fmtDate(l.data) : ""}
+          <button class="lr-del">remover</button>
+        </div>
+      </div>
+    </div>`).join("");
+}
+function bindLembretesConteudo(){
+  document.querySelectorAll("#chip-lembretes-materias .chip").forEach(c=>{
+    c.onclick = async ()=>{
+      state.lembretesMateria = c.dataset.m;
+      document.getElementById("lembretes-conteudo").innerHTML = await lembretesConteudoHtml();
+      bindLembretesConteudo();
+    };
+  });
+  document.querySelectorAll(".chiprow [data-f]").forEach(c=>{
+    c.onclick = async ()=>{
+      state.lembretesFiltro = c.dataset.f;
+      document.getElementById("lembretes-conteudo").innerHTML = await lembretesConteudoHtml();
+      bindLembretesConteudo();
+    };
+  });
+  refreshLembretesLista();
+  document.getElementById("btn-novo-lembrete").onclick = ()=>{
+    const materiaDefault = state.lembretesMateria === "todas" ? _materiasCache[0] : state.lembretesMateria;
+    openModal(`
+      <h3>Novo lembrete</h3>
+      <label>Matéria</label>
+      <select id="lb-materia">${_materiasCache.map(m=>`<option value="${esc(m)}" ${m===materiaDefault?"selected":""}>${esc(m)}</option>`).join("")}</select>
+      <label>Título</label>
+      <input type="text" id="lb-titulo" placeholder="Ex: Estudar equações do 2º grau">
+      <label>Detalhes (opcional)</label>
+      <textarea id="lb-desc" rows="3" placeholder="Alguma observação a mais..."></textarea>
+      <label>Data (opcional)</label>
+      <input type="date" id="lb-data">
+      <div class="err" id="lb-err" style="display:none;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="lb-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="lb-save" style="margin-top:0;">Salvar</button>
+      </div>
+    `, ()=>{
+      document.getElementById("lb-cancel").onclick = closeModal;
+      document.getElementById("lb-save").onclick = async ()=>{
+        const materia = document.getElementById("lb-materia").value;
+        const titulo = document.getElementById("lb-titulo").value.trim();
+        const descricao = document.getElementById("lb-desc").value.trim();
+        const data = document.getElementById("lb-data").value;
+        if(!titulo){
+          const e = document.getElementById("lb-err"); e.style.display="block"; e.textContent="Dê um título ao lembrete.";
+          return;
+        }
+        const lembretes = await sget("lembretes:" + materia) || [];
+        lembretes.push({ id: Date.now().toString(36), titulo, descricao, data, feito:false, autor: state.user.nome, criadoEm: new Date().toISOString() });
+        await sset("lembretes:" + materia, lembretes);
+        closeModal();
+        refreshLembretesLista();
+      };
+    });
+  };
+}
+async function refreshLembretesLista(){
+  const el = document.getElementById("lembretes-lista");
+  el.innerHTML = await lembretesListaHtml();
+  el.querySelectorAll(".lr-check").forEach(chk=>{
+    chk.onchange = async ()=>{
+      const row = chk.closest(".lembrete-row");
+      const materia = row.dataset.materia, id = row.dataset.id;
+      const lembretes = await sget("lembretes:" + materia) || [];
+      const item = lembretes.find(x=>x.id===id);
+      if(item){ item.feito = chk.checked; await sset("lembretes:" + materia, lembretes); }
+      refreshLembretesLista();
+    };
+  });
+  el.querySelectorAll(".lr-del").forEach(btn=>{
+    btn.onclick = async (e)=>{
+      e.stopPropagation();
+      const row = btn.closest(".lembrete-row");
+      const materia = row.dataset.materia, id = row.dataset.id;
+      const lembretes = await sget("lembretes:" + materia) || [];
+      await sset("lembretes:" + materia, lembretes.filter(x=>x.id!==id));
+      refreshLembretesLista();
+    };
+  });
+}
+function bindLembretes(){}
 
 /* ---------------- DEBATES ---------------- */
 function renderDebatesList(){
