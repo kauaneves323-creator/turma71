@@ -233,7 +233,16 @@
 <body>
 <div id="app"><div class="shell" id="shell"></div></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
+/* =========================================================
+   CONFIGURAÇÃO DO SUPABASE
+   ========================================================= */
+const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
+const SUPABASE_ANON_KEY = "SUA_CHAVE_ANON_PUBLICA";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const MURAL_BUCKET = "mural-fotos"; // bucket público no Storage
+
 const SUBJECT_COLORS = {
   "Português":"#C1443C","Matemática":"#4C7A54","História":"#8A6110",
   "Geografia":"#3D6E8C","Ciências":"#6A4C93","Inglês":"#B5533E",
@@ -242,43 +251,57 @@ const SUBJECT_COLORS = {
 const DEFAULT_SUBJECTS = Object.keys(SUBJECT_COLORS);
 
 let state = {
-  user: null,
+  profile: null, // { id, nome_completo, email }
   view: "login",
   authTab: "entrar",
+  authMsg: null,
   materiaAberta: null,
   provaFiltro: "todas",
   provaAberta: null,
   provaRespostas: {},
   provaResultado: null,
   topicoAberto: null,
-  showNovaMateria: false,
+  debateMateria: null,
   muralMateria: null,
   muralLightbox: null,
   lembretesMateria: "todas",
   lembretesFiltro: "pendentes",
 };
 
-function subjColor(name){ return SUBJECT_COLORS[name] || "#5B6A87"; }
+let _materiasCache = [];  // [{id, nome, cor}]
+let _notasCache = {};     // { materia_id: [ {id, nome_prova, valor} ] }
 
-async function sget(key){
-  try{ const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; }
-  catch(e){ return null; }
-}
-async function sset(key, val){
-  try{ await window.storage.set(key, JSON.stringify(val), true); }
-  catch(e){ console.error("storage set failed", key, e); }
-}
+function findMateria(id){ return _materiasCache.find(m => m.id === id); }
+function subjColor(id){ const m = findMateria(id); return (m && (m.cor || SUBJECT_COLORS[m.nome])) || "#5B6A87"; }
+function materiaNome(id){ const m = findMateria(id); return m ? m.nome : ""; }
+function esc(s){ const d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
+function fmtDate(iso){ if(!iso) return ""; const d = new Date(iso); return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}); }
+function autorNome(row){ return row && row.profiles ? row.profiles.nome_completo : "alguém"; }
 
-async function ensureSeed(){
-  let materias = await sget("materias");
-  if(!materias){ materias = DEFAULT_SUBJECTS.slice(); await sset("materias", materias); }
-  let users = await sget("users");
-  if(!users){ users = []; await sset("users", users); }
-  let provas = await sget("provas");
-  if(!provas){ provas = []; await sset("provas", provas); }
+/* ---------------- CARREGAMENTO BASE ---------------- */
+async function loadMaterias(){
+  const { data, error } = await sb.from("materias").select("*").order("nome");
+  if(error){ console.error(error); _materiasCache = []; return _materiasCache; }
+  _materiasCache = data || [];
+  return _materiasCache;
 }
+async function ensureSeedMaterias(){
+  const { count } = await sb.from("materias").select("id", { count: "exact", head: true });
+  if(!count){
+    const rows = DEFAULT_SUBJECTS.map(nome => ({ nome, cor: SUBJECT_COLORS[nome], criado_por: state.profile.id }));
+    await sb.from("materias").insert(rows);
+    await loadMaterias();
+  }
+}
+async function loadNotas(){
+  const { data, error } = await sb.from("notas").select("*").eq("usuario_id", state.profile.id);
+  _notasCache = {};
+  if(error){ console.error(error); return; }
+  (data||[]).forEach(n=>{ if(!_notasCache[n.materia_id]) _notasCache[n.materia_id] = []; _notasCache[n.materia_id].push(n); });
+}
+async function loadMateriasNotas(){ await loadMaterias(); await loadNotas(); }
 
-/* ---------------- IMAGEM (comprime antes de salvar) ---------------- */
+/* ---------------- IMAGEM (comprime e sobe pro Storage) ---------------- */
 function lerEComprimirImagem(file){
   return new Promise((resolve, reject)=>{
     const reader = new FileReader();
@@ -296,16 +319,20 @@ function lerEComprimirImagem(file){
         const canvas = document.createElement("canvas");
         canvas.width = w; canvas.height = h;
         canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
+        canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.72);
       };
       img.src = reader.result;
     };
     reader.readAsDataURL(file);
   });
 }
-
-function esc(s){ const d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
-function fmtDate(iso){ const d = new Date(iso); return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}); }
+async function subirFotoMural(blob){
+  const path = `${state.profile.id}/${Date.now().toString(36)}.jpg`;
+  const { error } = await sb.storage.from(MURAL_BUCKET).upload(path, blob, { contentType: "image/jpeg" });
+  if(error) throw error;
+  const { data } = sb.storage.from(MURAL_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
 
 function render(){
   const shell = document.getElementById("shell");
@@ -333,8 +360,8 @@ function renderAuth(){
       </div>
       ${isEntrar ? `
         <form id="form-entrar">
-          <label>Nome completo</label>
-          <input type="text" id="l-nome" placeholder="Ex: Maria da Silva Souza" required>
+          <label>Email</label>
+          <input type="email" id="l-email" placeholder="voce@email.com" required>
           <label>Senha</label>
           <input type="password" id="l-senha" placeholder="Sua senha" required>
           <div class="err" id="l-err" style="display:none;"></div>
@@ -344,40 +371,37 @@ function renderAuth(){
         <form id="form-cadastro">
           <label>Nome completo</label>
           <input type="text" id="c-nome" placeholder="Ex: João Pedro Alves" required>
-          <label>Email (opcional)</label>
-          <input type="email" id="c-email" placeholder="voce@email.com">
+          <label>Email</label>
+          <input type="email" id="c-email" placeholder="voce@email.com" required>
           <label>Senha</label>
-          <input type="password" id="c-senha" placeholder="Crie uma senha" required>
+          <input type="password" id="c-senha" placeholder="Crie uma senha (mín. 6 caracteres)" required>
           <div class="err" id="c-err" style="display:none;"></div>
           <button class="btn btn-primary" type="submit">Criar conta</button>
         </form>
       `}
-      <div class="hint" style="margin-top:16px;">Protótipo: os dados ficam guardados no armazenamento deste app, não é um sistema com segurança de produção.</div>
+      ${state.authMsg ? `<div class="hint" style="margin-top:14px; color:var(--green); font-weight:600;">${esc(state.authMsg)}</div>` : ""}
+      <div class="hint" style="margin-top:16px;">Os dados ficam guardados no seu projeto Supabase, com autenticação de verdade.</div>
     </div>
   </div>`;
 }
-
 function bindAuth(){
   document.querySelectorAll(".tabbar button").forEach(b=>{
-    b.onclick = ()=>{ state.authTab = b.dataset.tab; render(); };
+    b.onclick = ()=>{ state.authTab = b.dataset.tab; state.authMsg = null; render(); };
   });
 
   const fe = document.getElementById("form-entrar");
   if(fe) fe.onsubmit = async (e)=>{
     e.preventDefault();
-    const nome = document.getElementById("l-nome").value.trim();
+    const email = document.getElementById("l-email").value.trim();
     const senha = document.getElementById("l-senha").value;
-    const users = await sget("users") || [];
-    const found = users.find(u => u.nome.toLowerCase() === nome.toLowerCase() && u.senha === senha);
     const errEl = document.getElementById("l-err");
-    if(!found){
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
+    if(error){
       errEl.style.display = "block";
-      errEl.textContent = "Nome ou senha incorretos. Confira ou crie uma conta.";
+      errEl.textContent = "Email ou senha incorretos. Confira ou crie uma conta.";
       return;
     }
-    state.user = found;
-    state.view = "inicio";
-    render();
+    await entrarComUsuario(data.user);
   };
 
   const fc = document.getElementById("form-cadastro");
@@ -392,19 +416,42 @@ function bindAuth(){
       errEl.textContent = "Digite seu nome completo (nome e sobrenome).";
       return;
     }
-    const users = await sget("users") || [];
-    if(users.find(u => u.nome.toLowerCase() === nome.toLowerCase())){
+    const { data, error } = await sb.auth.signUp({ email, password: senha, options: { data: { nome_completo: nome } } });
+    if(error){
       errEl.style.display = "block";
-      errEl.textContent = "Já existe uma conta com esse nome. Tente entrar.";
+      errEl.textContent = error.message.includes("already") ? "Já existe uma conta com esse email." : "Não foi possível criar a conta: " + error.message;
       return;
     }
-    const novo = { nome, email, senha, criadoEm: new Date().toISOString() };
-    users.push(novo);
-    await sset("users", users);
-    state.user = novo;
-    state.view = "inicio";
-    render();
+    if(data.session){
+      await entrarComUsuario(data.user, nome, email);
+    } else {
+      state.authTab = "entrar";
+      state.authMsg = "Conta criada! Confirme seu email (verifique a caixa de entrada) e depois entre.";
+      render();
+    }
   };
+}
+async function entrarComUsuario(user, nomeFallback, emailFallback){
+  state.authMsg = null;
+  let profile = null;
+  for(let i=0;i<5;i++){
+    const { data } = await sb.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    if(data){ profile = data; break; }
+    await new Promise(r=>setTimeout(r, 400)); // aguarda o trigger criar o profile, se existir
+  }
+  if(!profile){
+    // não existe trigger (ou ainda não rodou): cria manualmente
+    const nome = nomeFallback || (user.user_metadata && user.user_metadata.nome_completo) || user.email;
+    const { data: novo } = await sb.from("profiles")
+      .insert({ id: user.id, nome_completo: nome, email: emailFallback || user.email })
+      .select().maybeSingle();
+    profile = novo || { id: user.id, nome_completo: nome, email: user.email };
+  }
+  state.profile = profile;
+  await loadMaterias();
+  if(!_materiasCache.length) await ensureSeedMaterias();
+  state.view = "inicio";
+  render();
 }
 
 /* ---------------- SIDEBAR ---------------- */
@@ -422,10 +469,7 @@ function renderSidebar(){
     <div class="side-brand">Turma<span>+</span></div>
     ${items.map(i=>`<button class="navbtn ${state.view.startsWith(i.id)?'active':''}" data-view="${i.id}">${esc(i.label)}</button>`).join("")}
     <div class="side-foot">
-      <div class="side-user" style="display:flex; align-items:center; gap:8px;">
-        ${state.user.foto ? `<img src="${state.user.foto}" alt="" style="width:24px; height:24px; border-radius:50%;">` : ""}
-        <span>${esc(state.user.nome)}</span>
-      </div>
+      <div class="side-user">${esc(state.profile.nome_completo)}</div>
       <button class="logout" id="btn-logout">Sair</button>
     </div>
   </div>`;
@@ -439,8 +483,9 @@ function bindSidebar(){
       render();
     };
   });
-  document.getElementById("btn-logout").onclick = ()=>{
-    state.user = null; state.view = "login"; render();
+  document.getElementById("btn-logout").onclick = async ()=>{
+    await sb.auth.signOut();
+    state.profile = null; state.view = "login"; render();
   };
 }
 
@@ -464,13 +509,6 @@ function bindMain(){
 }
 
 /* ---------------- MATÉRIAS / NOTAS ---------------- */
-let _materiasCache = null, _notasCache = null;
-
-async function loadMateriasNotas(){
-  _materiasCache = await sget("materias") || DEFAULT_SUBJECTS.slice();
-  _notasCache = await sget("notas:" + state.user.nome) || {};
-}
-
 function renderMateriasList(){
   loadMateriasNotas().then(()=>{ document.getElementById("materias-grid").innerHTML = materiasGridHtml(); bindMateriasGrid(); });
   return `
@@ -485,12 +523,12 @@ function renderMateriasList(){
 }
 function materiasGridHtml(){
   return _materiasCache.map(m=>{
-    const provas = (_notasCache[m] || []);
-    const soma = provas.reduce((a,p)=>a+Number(p.nota||0),0);
+    const provas = (_notasCache[m.id] || []);
+    const soma = provas.reduce((a,p)=>a+Number(p.valor||0),0);
     const media = provas.length ? (soma/provas.length) : 0;
     return `
-    <div class="card subject-card" data-materia="${esc(m)}">
-      <div class="subject-name"><span class="subject-tab" style="background:${subjColor(m)}"></span>${esc(m)}</div>
+    <div class="card subject-card" data-materia="${m.id}">
+      <div class="subject-name"><span class="subject-tab" style="background:${subjColor(m.id)}"></span>${esc(m.nome)}</div>
       <div class="subject-meta">${provas.length} prova${provas.length===1?"":"s"} lançada${provas.length===1?"":"s"}</div>
       <div class="subject-stats">
         <div><div class="stat-num">${soma.toFixed(1)}</div><div class="stat-label">soma</div></div>
@@ -508,10 +546,9 @@ function bindMateriasList(){
   document.getElementById("btn-nova-materia").onclick = async ()=>{
     const nome = prompt("Nome da nova matéria:");
     if(!nome || !nome.trim()) return;
-    const materias = await sget("materias") || [];
-    if(materias.includes(nome.trim())){ alert("Essa matéria já existe."); return; }
-    materias.push(nome.trim());
-    await sset("materias", materias);
+    if(_materiasCache.some(m=>m.nome.toLowerCase()===nome.trim().toLowerCase())){ alert("Essa matéria já existe."); return; }
+    const { error } = await sb.from("materias").insert({ nome: nome.trim(), criado_por: state.profile.id });
+    if(error){ alert("Não foi possível criar a matéria: " + error.message); return; }
     render();
   };
 }
@@ -520,15 +557,15 @@ function renderMateriaDetalhe(){
   const m = state.materiaAberta;
   return `
     <button class="back" id="btn-voltar-materias">&larr; Todas as matérias</button>
-    <h1 class="page-title"><span class="subject-tab" style="background:${subjColor(m)}"></span> ${esc(m)}</h1>
+    <h1 class="page-title"><span class="subject-tab" style="background:${subjColor(m)}"></span> ${esc(materiaNome(m))}</h1>
     <p class="page-sub">Lance suas notas de prova e veja a soma e a média em tempo real.</p>
     <div class="card" id="materia-card">Carregando...</div>
   `;
 }
 async function materiaCardHtml(){
-  const notas = await sget("notas:" + state.user.nome) || {};
-  const provas = notas[state.materiaAberta] || [];
-  const soma = provas.reduce((a,p)=>a+Number(p.nota||0),0);
+  await loadNotas();
+  const provas = _notasCache[state.materiaAberta] || [];
+  const soma = provas.reduce((a,p)=>a+Number(p.valor||0),0);
   const media = provas.length ? (soma/provas.length) : 0;
   return `
     <div class="subject-stats" style="margin-bottom:6px;">
@@ -540,7 +577,7 @@ async function materiaCardHtml(){
     <table class="notas">
       <thead><tr><th>Prova</th><th style="text-align:right;">Nota</th></tr></thead>
       <tbody>
-        ${provas.map((p,i)=>`<tr><td>${esc(p.prova)}</td><td class="n">${Number(p.nota).toFixed(1)}</td></tr>`).join("")}
+        ${provas.map(p=>`<tr><td>${esc(p.nome_prova)}</td><td class="n">${Number(p.valor).toFixed(1)}</td></tr>`).join("")}
       </tbody>
     </table>` : `<div class="empty"><div class="em-title">Nenhuma nota ainda</div>Lance a nota da sua primeira prova abaixo.</div>`}
     <div class="add-row">
@@ -550,28 +587,6 @@ async function materiaCardHtml(){
     </div>
     <div class="err" id="np-err" style="display:none;"></div>
   `;
-}
-async function bindMateriaDetalhe(){
-  document.getElementById("btn-voltar-materias").onclick = ()=>{ state.materiaAberta = null; render(); };
-  const card = document.getElementById("materia-card");
-  card.innerHTML = await materiaCardHtml();
-  document.getElementById("np-add").onclick = async ()=>{
-    const nome = document.getElementById("np-nome").value.trim();
-    const notaStr = document.getElementById("np-nota").value;
-    const errEl = document.getElementById("np-err");
-    const nota = parseFloat(notaStr);
-    if(!nome || isNaN(nota) || nota < 0 || nota > 10){
-      errEl.style.display = "block";
-      errEl.textContent = "Informe o nome da prova e uma nota entre 0 e 10.";
-      return;
-    }
-    const notas = await sget("notas:" + state.user.nome) || {};
-    if(!notas[state.materiaAberta]) notas[state.materiaAberta] = [];
-    notas[state.materiaAberta].push({ prova: nome, nota: nota });
-    await sset("notas:" + state.user.nome, notas);
-    card.innerHTML = await materiaCardHtml();
-    bindMateriaCardInner();
-  };
 }
 function bindMateriaCardInner(){
   document.getElementById("np-add").onclick = async ()=>{
@@ -584,21 +599,25 @@ function bindMateriaCardInner(){
       errEl.textContent = "Informe o nome da prova e uma nota entre 0 e 10.";
       return;
     }
-    const notas = await sget("notas:" + state.user.nome) || {};
-    if(!notas[state.materiaAberta]) notas[state.materiaAberta] = [];
-    notas[state.materiaAberta].push({ prova: nome, nota: nota });
-    await sset("notas:" + state.user.nome, notas);
+    const { error } = await sb.from("notas").insert({ usuario_id: state.profile.id, materia_id: state.materiaAberta, nome_prova: nome, valor: nota });
+    if(error){ errEl.style.display = "block"; errEl.textContent = "Erro ao salvar: " + error.message; return; }
     const card = document.getElementById("materia-card");
     card.innerHTML = await materiaCardHtml();
     bindMateriaCardInner();
   };
+}
+async function bindMateriaDetalhe(){
+  document.getElementById("btn-voltar-materias").onclick = ()=>{ state.materiaAberta = null; render(); };
+  const card = document.getElementById("materia-card");
+  card.innerHTML = await materiaCardHtml();
+  bindMateriaCardInner();
 }
 
 /* ---------------- INÍCIO / DASHBOARD ---------------- */
 function renderInicio(){
   loadInicio();
   return `
-    <h1 class="page-title">Oi, ${esc(state.user.nome.split(" ")[0])}</h1>
+    <h1 class="page-title">Oi, ${esc(state.profile.nome_completo.split(" ")[0])}</h1>
     <p class="page-sub">Um resumo rápido da sua turma.</p>
     <div id="inicio-body"><div class="empty">Carregando...</div></div>
   `;
@@ -606,43 +625,34 @@ function renderInicio(){
 async function loadInicio(){
   const body = document.getElementById("inicio-body");
   if(!body) return;
-  const materias = await sget("materias") || DEFAULT_SUBJECTS.slice();
-  const notas = await sget("notas:" + state.user.nome) || {};
+  await loadMateriasNotas();
   let totalNotas = 0, somaNotas = 0;
-  materias.forEach(m=>{ (notas[m]||[]).forEach(p=>{ totalNotas++; somaNotas += Number(p.nota||0); }); });
+  Object.values(_notasCache).forEach(provas=>{ provas.forEach(p=>{ totalNotas++; somaNotas += Number(p.valor||0); }); });
   const mediaGeral = totalNotas ? (somaNotas/totalNotas) : 0;
 
-  let lembretesTodos = [];
-  for(const m of materias){
-    const l = await sget("lembretes:" + m) || [];
-    lembretesTodos.push(...l.map(x=>({...x, materia:m})));
-  }
-  const pendentes = lembretesTodos.filter(l=>!l.feito).sort((a,b)=> (a.data||"9999").localeCompare(b.data||"9999"));
+  const { data: pendentes } = await sb.from("lembretes").select("*")
+    .eq("feito", false).order("data_vencimento", { ascending: true, nullsFirst: false });
 
-  let fotosTodas = [];
-  for(const m of materias){
-    const f = await sget("mural:" + m) || [];
-    fotosTodas.push(...f.map(x=>({...x, materia:m})));
-  }
-  fotosTodas.sort((a,b)=> b.data.localeCompare(a.data));
+  const { data: fotosTodas } = await sb.from("mural").select("*, profiles(nome_completo)")
+    .order("criado_em", { ascending: false }).limit(6);
 
   body.innerHTML = `
     <div class="stat-cards">
-      <div class="stat-card"><div class="stat-num">${materias.length}</div><div class="stat-label">matérias</div></div>
+      <div class="stat-card"><div class="stat-num">${_materiasCache.length}</div><div class="stat-label">matérias</div></div>
       <div class="stat-card"><div class="stat-num">${mediaGeral.toFixed(1)}</div><div class="stat-label">média geral</div></div>
-      <div class="stat-card"><div class="stat-num">${pendentes.length}</div><div class="stat-label">lembretes pendentes</div></div>
-      <div class="stat-card"><div class="stat-num">${fotosTodas.length}</div><div class="stat-label">fotos no mural</div></div>
+      <div class="stat-card"><div class="stat-num">${(pendentes||[]).length}</div><div class="stat-label">lembretes pendentes</div></div>
+      <div class="stat-card"><div class="stat-num">${(fotosTodas||[]).length}</div><div class="stat-label">fotos no mural</div></div>
     </div>
 
     <div class="home-section">
       <div class="section-title">Lembretes próximos <a class="link-mini" data-goto="lembretes">ver todos</a></div>
       <div class="card">
-        ${pendentes.length ? pendentes.slice(0,4).map(l=>`
+        ${(pendentes&&pendentes.length) ? pendentes.slice(0,4).map(l=>`
           <div class="lembrete-mini">
-            <span class="lm-dot" style="background:${subjColor(l.materia)}"></span>
+            <span class="lm-dot" style="background:${subjColor(l.materia_id)}"></span>
             <div>
               <div style="font-weight:700; font-size:13px;">${esc(l.titulo)}</div>
-              <div style="font-size:11px; color:var(--ink-soft);">${esc(l.materia)}${l.data ? " · " + fmtDate(l.data) : ""}</div>
+              <div style="font-size:11px; color:var(--ink-soft);">${esc(materiaNome(l.materia_id))}${l.data_vencimento ? " · " + fmtDate(l.data_vencimento) : ""}</div>
             </div>
           </div>`).join("") : `<div class="hint">Nenhum lembrete pendente. Bom sinal.</div>`}
       </div>
@@ -650,9 +660,9 @@ async function loadInicio(){
 
     <div class="home-section">
       <div class="section-title">Últimas fotos do quadro <a class="link-mini" data-goto="mural">ver mural</a></div>
-      ${fotosTodas.length ? `
+      ${(fotosTodas&&fotosTodas.length) ? `
         <div class="mural-thumbs">
-          ${fotosTodas.slice(0,6).map(f=>`<div class="mural-thumb" data-foto='${esc(JSON.stringify({legenda:f.legenda, materia:f.materia, autor:f.autor, data:f.data, foto:f.foto}))}'><img src="${f.foto}" alt=""></div>`).join("")}
+          ${fotosTodas.map(f=>`<div class="mural-thumb" data-foto='${esc(JSON.stringify({legenda:f.legenda, materia:materiaNome(f.materia_id), autor:autorNome(f), data:f.criado_em, foto:f.foto_url}))}'><img src="${f.foto_url}" alt=""></div>`).join("")}
         </div>` : `<div class="card"><div class="hint">Ninguém tirou foto do quadro ainda.</div></div>`}
     </div>
   `;
@@ -668,8 +678,8 @@ function bindInicio(){
 
 /* ---------------- MURAL DO QUADRO ---------------- */
 function renderMural(){
-  loadMateriasNotas().then(async ()=>{
-    if(!state.muralMateria) state.muralMateria = _materiasCache[0];
+  loadMaterias().then(async ()=>{
+    if(!state.muralMateria) state.muralMateria = _materiasCache[0] ? _materiasCache[0].id : null;
     document.getElementById("mural-conteudo").innerHTML = await muralConteudoHtml();
     bindMuralConteudo();
   });
@@ -682,10 +692,10 @@ function renderMural(){
 async function muralConteudoHtml(){
   return `
     <div class="chiprow" id="chip-mural-materias" style="margin-bottom:18px;">
-      ${_materiasCache.map(m=>`<button class="chip ${state.muralMateria===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+      ${_materiasCache.map(m=>`<button class="chip ${state.muralMateria===m.id?'active':''}" data-m="${m.id}">${esc(m.nome)}</button>`).join("")}
     </div>
     <div class="upload-box">
-      <div style="font-weight:700;">Adicionar foto do quadro — ${esc(state.muralMateria)}</div>
+      <div style="font-weight:700;">Adicionar foto do quadro — ${esc(materiaNome(state.muralMateria))}</div>
       <div class="hint">Tire uma foto ou escolha da galeria.</div>
       <input type="file" id="mural-file" accept="image/*" capture="environment">
       <input type="text" id="mural-legenda" placeholder="Legenda (ex: matéria da prova de sexta)" style="margin-top:10px;">
@@ -713,10 +723,13 @@ function bindMuralConteudo(){
     const btn = document.getElementById("mural-enviar");
     btn.disabled = true; btn.textContent = "Enviando...";
     try{
-      const dataUrl = await lerEComprimirImagem(file);
-      const mural = await sget("mural:" + state.muralMateria) || [];
-      mural.push({ id: Date.now().toString(36), foto: dataUrl, legenda: legenda || "Sem legenda", autor: state.user.nome, data: new Date().toISOString() });
-      await sset("mural:" + state.muralMateria, mural);
+      const blob = await lerEComprimirImagem(file);
+      const url = await subirFotoMural(blob);
+      const { error } = await sb.from("mural").insert({
+        materia_id: state.muralMateria, autor_id: state.profile.id,
+        foto_url: url, legenda: legenda || "Sem legenda"
+      });
+      if(error) throw error;
       fileInput.value = ""; document.getElementById("mural-legenda").value = "";
       errEl.style.display = "none";
       refreshMuralGrid();
@@ -728,18 +741,19 @@ function bindMuralConteudo(){
 }
 async function refreshMuralGrid(){
   const grid = document.getElementById("mural-grid");
-  const fotos = await sget("mural:" + state.muralMateria) || [];
-  if(!fotos.length){ grid.innerHTML = `<div class="empty"><div class="em-title">Mural vazio</div>Ninguém postou foto do quadro de ${esc(state.muralMateria)} ainda.</div>`; return; }
-  grid.innerHTML = fotos.slice().reverse().map(f=>`
-    <div class="mural-card" data-foto='${esc(JSON.stringify(f))}'>
-      <img src="${f.foto}" alt="">
+  const { data: fotos } = await sb.from("mural").select("*, profiles(nome_completo)")
+    .eq("materia_id", state.muralMateria).order("criado_em", { ascending: false });
+  if(!fotos || !fotos.length){ grid.innerHTML = `<div class="empty"><div class="em-title">Mural vazio</div>Ninguém postou foto do quadro de ${esc(materiaNome(state.muralMateria))} ainda.</div>`; return; }
+  grid.innerHTML = fotos.map(f=>`
+    <div class="mural-card" data-foto='${esc(JSON.stringify({legenda:f.legenda, autor:autorNome(f), data:f.criado_em, foto:f.foto_url}))}'>
+      <img src="${f.foto_url}" alt="">
       <div class="mc-body">
         <div class="mc-legenda">${esc(f.legenda)}</div>
-        <div class="mc-meta">${esc(f.autor)} · ${fmtDate(f.data)}</div>
+        <div class="mc-meta">${esc(autorNome(f))} · ${fmtDate(f.criado_em)}</div>
       </div>
     </div>`).join("");
   grid.querySelectorAll(".mural-card").forEach(el=>{
-    el.onclick = ()=>{ const d = JSON.parse(el.dataset.foto); state.muralLightbox = { ...d, materia: state.muralMateria }; renderLightbox(); };
+    el.onclick = ()=>{ const d = JSON.parse(el.dataset.foto); state.muralLightbox = { ...d, materia: materiaNome(state.muralMateria) }; renderLightbox(); };
   });
 }
 function bindMural(){}
@@ -770,7 +784,7 @@ function closeLightbox(){
 
 /* ---------------- LEMBRETES DE TEMA ---------------- */
 function renderLembretes(){
-  loadMateriasNotas().then(async ()=>{
+  loadMaterias().then(async ()=>{
     document.getElementById("lembretes-conteudo").innerHTML = await lembretesConteudoHtml();
     bindLembretesConteudo();
   });
@@ -785,7 +799,7 @@ async function lembretesConteudoHtml(){
     <div class="toolbar">
       <div class="chiprow" id="chip-lembretes-materias">
         <button class="chip ${state.lembretesMateria==='todas'?'active':''}" data-m="todas">Todas</button>
-        ${_materiasCache.map(m=>`<button class="chip ${state.lembretesMateria===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+        ${_materiasCache.map(m=>`<button class="chip ${state.lembretesMateria===m.id?'active':''}" data-m="${m.id}">${esc(m.nome)}</button>`).join("")}
       </div>
       <button class="btn btn-ghost btn-sm" id="btn-novo-lembrete">+ Novo lembrete</button>
     </div>
@@ -797,24 +811,21 @@ async function lembretesConteudoHtml(){
   `;
 }
 async function lembretesListaHtml(){
-  const materiasAlvo = state.lembretesMateria === "todas" ? _materiasCache : [state.lembretesMateria];
-  let itens = [];
-  for(const m of materiasAlvo){
-    const l = await sget("lembretes:" + m) || [];
-    itens.push(...l.map(x=>({...x, materia:m})));
-  }
-  if(state.lembretesFiltro === "pendentes") itens = itens.filter(x=>!x.feito);
-  itens.sort((a,b)=> (a.data||"9999").localeCompare(b.data||"9999"));
-  if(!itens.length) return `<div class="empty"><div class="em-title">Nada por aqui</div>Crie um lembrete de tema para não esquecer o que estudar.</div>`;
+  let q = sb.from("lembretes").select("*");
+  if(state.lembretesMateria !== "todas") q = q.eq("materia_id", state.lembretesMateria);
+  if(state.lembretesFiltro === "pendentes") q = q.eq("feito", false);
+  q = q.order("data_vencimento", { ascending: true, nullsFirst: false });
+  const { data: itens } = await q;
+  if(!itens || !itens.length) return `<div class="empty"><div class="em-title">Nada por aqui</div>Crie um lembrete de tema para não esquecer o que estudar.</div>`;
   return itens.map(l=>`
-    <div class="lembrete-row ${l.feito?'feito':''}" data-id="${l.id}" data-materia="${esc(l.materia)}">
+    <div class="lembrete-row ${l.feito?'feito':''}" data-id="${l.id}">
       <input type="checkbox" class="lr-check" ${l.feito?"checked":""}>
       <div style="flex:1;">
         <div class="lr-titulo">${esc(l.titulo)}</div>
         ${l.descricao ? `<div class="lr-desc">${esc(l.descricao)}</div>` : ""}
         <div class="lr-meta">
-          <span class="subject-tab" style="background:${subjColor(l.materia)}; width:8px; height:8px;"></span>
-          ${esc(l.materia)}${l.data ? " · vence " + fmtDate(l.data) : ""}
+          <span class="subject-tab" style="background:${subjColor(l.materia_id)}; width:8px; height:8px;"></span>
+          ${esc(materiaNome(l.materia_id))}${l.data_vencimento ? " · vence " + fmtDate(l.data_vencimento) : ""}
           <button class="lr-del">remover</button>
         </div>
       </div>
@@ -837,11 +848,11 @@ function bindLembretesConteudo(){
   });
   refreshLembretesLista();
   document.getElementById("btn-novo-lembrete").onclick = ()=>{
-    const materiaDefault = state.lembretesMateria === "todas" ? _materiasCache[0] : state.lembretesMateria;
+    const materiaDefault = state.lembretesMateria === "todas" ? (_materiasCache[0] && _materiasCache[0].id) : state.lembretesMateria;
     openModal(`
       <h3>Novo lembrete</h3>
       <label>Matéria</label>
-      <select id="lb-materia">${_materiasCache.map(m=>`<option value="${esc(m)}" ${m===materiaDefault?"selected":""}>${esc(m)}</option>`).join("")}</select>
+      <select id="lb-materia">${_materiasCache.map(m=>`<option value="${m.id}" ${m.id===materiaDefault?"selected":""}>${esc(m.nome)}</option>`).join("")}</select>
       <label>Título</label>
       <input type="text" id="lb-titulo" placeholder="Ex: Estudar equações do 2º grau">
       <label>Detalhes (opcional)</label>
@@ -856,17 +867,16 @@ function bindLembretesConteudo(){
     `, ()=>{
       document.getElementById("lb-cancel").onclick = closeModal;
       document.getElementById("lb-save").onclick = async ()=>{
-        const materia = document.getElementById("lb-materia").value;
+        const materia_id = document.getElementById("lb-materia").value;
         const titulo = document.getElementById("lb-titulo").value.trim();
         const descricao = document.getElementById("lb-desc").value.trim();
-        const data = document.getElementById("lb-data").value;
+        const data_vencimento = document.getElementById("lb-data").value || null;
         if(!titulo){
           const e = document.getElementById("lb-err"); e.style.display="block"; e.textContent="Dê um título ao lembrete.";
           return;
         }
-        const lembretes = await sget("lembretes:" + materia) || [];
-        lembretes.push({ id: Date.now().toString(36), titulo, descricao, data, feito:false, autor: state.user.nome, criadoEm: new Date().toISOString() });
-        await sset("lembretes:" + materia, lembretes);
+        const { error } = await sb.from("lembretes").insert({ materia_id, autor_id: state.profile.id, titulo, descricao, data_vencimento, feito:false });
+        if(error){ const e = document.getElementById("lb-err"); e.style.display="block"; e.textContent="Erro ao salvar: " + error.message; return; }
         closeModal();
         refreshLembretesLista();
       };
@@ -879,10 +889,8 @@ async function refreshLembretesLista(){
   el.querySelectorAll(".lr-check").forEach(chk=>{
     chk.onchange = async ()=>{
       const row = chk.closest(".lembrete-row");
-      const materia = row.dataset.materia, id = row.dataset.id;
-      const lembretes = await sget("lembretes:" + materia) || [];
-      const item = lembretes.find(x=>x.id===id);
-      if(item){ item.feito = chk.checked; await sset("lembretes:" + materia, lembretes); }
+      const id = row.dataset.id;
+      await sb.from("lembretes").update({ feito: chk.checked }).eq("id", id);
       refreshLembretesLista();
     };
   });
@@ -890,19 +898,18 @@ async function refreshLembretesLista(){
     btn.onclick = async (e)=>{
       e.stopPropagation();
       const row = btn.closest(".lembrete-row");
-      const materia = row.dataset.materia, id = row.dataset.id;
-      const lembretes = await sget("lembretes:" + materia) || [];
-      await sset("lembretes:" + materia, lembretes.filter(x=>x.id!==id));
+      const id = row.dataset.id;
+      await sb.from("lembretes").delete().eq("id", id);
       refreshLembretesLista();
     };
   });
 }
 function bindLembretes(){}
 
-/* ---------------- DEBATES ---------------- */
+/* ---------------- DEBATES (tabelas: topicos, respostas) ---------------- */
 function renderDebatesList(){
-  loadMateriasNotas().then(async ()=>{
-    if(!state.debateMateria) state.debateMateria = _materiasCache[0];
+  loadMaterias().then(async ()=>{
+    if(!state.debateMateria) state.debateMateria = _materiasCache[0] ? _materiasCache[0].id : null;
     document.getElementById("debates-body").innerHTML = await debatesBodyHtml();
     bindDebatesBody();
   });
@@ -915,19 +922,20 @@ function renderDebatesList(){
 async function debatesBodyHtml(){
   return `
     <div class="chiprow" id="chip-materias" style="margin-bottom:18px;">
-      ${_materiasCache.map(m=>`<button class="chip ${state.debateMateria===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+      ${_materiasCache.map(m=>`<button class="chip ${state.debateMateria===m.id?'active':''}" data-m="${m.id}">${esc(m.nome)}</button>`).join("")}
     </div>
     <div class="toolbar"><div></div><button class="btn btn-ghost btn-sm" id="btn-novo-topico">+ Novo tópico</button></div>
     <div class="card" id="topicos-card">Carregando tópicos...</div>
   `;
 }
 async function topicosCardHtml(){
-  const topicos = await sget("debates:" + state.debateMateria) || [];
-  if(!topicos.length) return `<div class="empty"><div class="em-title">Nenhum debate ainda</div>Seja o primeiro a abrir um tópico em ${esc(state.debateMateria)}.</div>`;
-  return topicos.slice().reverse().map(t=>`
+  const { data: topicos } = await sb.from("topicos").select("*, profiles(nome_completo), respostas(id)")
+    .eq("materia_id", state.debateMateria).order("criado_em", { ascending: false });
+  if(!topicos || !topicos.length) return `<div class="empty"><div class="em-title">Nenhum debate ainda</div>Seja o primeiro a abrir um tópico em ${esc(materiaNome(state.debateMateria))}.</div>`;
+  return topicos.map(t=>`
     <div class="topic" data-id="${t.id}">
       <div class="topic-title">${esc(t.titulo)}</div>
-      <div class="topic-meta">por ${esc(t.autor)} · ${fmtDate(t.data)} · ${t.respostas.length} resposta${t.respostas.length===1?"":"s"}</div>
+      <div class="topic-meta">por ${esc(autorNome(t))} · ${fmtDate(t.criado_em)} · ${t.respostas.length} resposta${t.respostas.length===1?"":"s"}</div>
     </div>`).join("");
 }
 function bindDebatesBody(){
@@ -940,7 +948,7 @@ function bindDebatesBody(){
   });
   refreshTopicos();
   document.getElementById("btn-novo-topico").onclick = ()=>openModal(`
-    <h3>Novo tópico — ${esc(state.debateMateria)}</h3>
+    <h3>Novo tópico — ${esc(materiaNome(state.debateMateria))}</h3>
     <label>Título</label>
     <input type="text" id="dt-titulo" placeholder="Ex: Qual a melhor forma de resolver equações do 2º grau?">
     <label>Sua opinião / pergunta</label>
@@ -959,9 +967,8 @@ function bindDebatesBody(){
         const e = document.getElementById("dt-err"); e.style.display="block"; e.textContent="Preencha título e texto.";
         return;
       }
-      const topicos = await sget("debates:" + state.debateMateria) || [];
-      topicos.push({ id: Date.now().toString(36), titulo, texto, autor: state.user.nome, data: new Date().toISOString(), respostas: [] });
-      await sset("debates:" + state.debateMateria, topicos);
+      const { error } = await sb.from("topicos").insert({ materia_id: state.debateMateria, autor_id: state.profile.id, titulo, texto });
+      if(error){ const e = document.getElementById("dt-err"); e.style.display="block"; e.textContent="Erro: " + error.message; return; }
       closeModal();
       refreshTopicos();
     };
@@ -978,24 +985,25 @@ async function refreshTopicos(){
 function renderTopicoDetalhe(){
   loadTopico();
   return `
-    <button class="back" id="btn-voltar-debates">&larr; ${esc(state.debateMateria)}</button>
+    <button class="back" id="btn-voltar-debates">&larr; ${esc(materiaNome(state.debateMateria))}</button>
     <div id="topico-body"><div class="empty">Carregando...</div></div>
   `;
 }
 async function loadTopico(){
-  const topicos = await sget("debates:" + state.debateMateria) || [];
-  const t = topicos.find(x=>x.id===state.topicoAberto);
+  const { data: t } = await sb.from("topicos").select("*, profiles(nome_completo)").eq("id", state.topicoAberto).maybeSingle();
   const body = document.getElementById("topico-body");
   if(!body) return;
   if(!t){ body.innerHTML = `<div class="empty">Tópico não encontrado.</div>`; return; }
+  const { data: respostas } = await sb.from("respostas").select("*, profiles(nome_completo)")
+    .eq("topico_id", state.topicoAberto).order("criado_em", { ascending: true });
   body.innerHTML = `
     <h1 class="page-title">${esc(t.titulo)}</h1>
-    <p class="page-sub">por ${esc(t.autor)} · ${fmtDate(t.data)}</p>
+    <p class="page-sub">por ${esc(autorNome(t))} · ${fmtDate(t.criado_em)}</p>
     <div class="card"><p style="margin:0; line-height:1.6;">${esc(t.texto)}</p></div>
-    <h3 style="margin:22px 0 10px; font-family:var(--serif);">Respostas (${t.respostas.length})</h3>
-    ${t.respostas.map(r=>`
+    <h3 style="margin:22px 0 10px; font-family:var(--serif);">Respostas (${(respostas||[]).length})</h3>
+    ${(respostas||[]).map(r=>`
       <div class="reply">
-        <div class="reply-meta">${esc(r.autor)} · ${fmtDate(r.data)}</div>
+        <div class="reply-meta">${esc(autorNome(r))} · ${fmtDate(r.criado_em)}</div>
         <div>${esc(r.texto)}</div>
       </div>`).join("") || `<div class="hint">Nenhuma resposta ainda.</div>`}
     <div class="add-row" style="align-items:flex-start;">
@@ -1006,10 +1014,7 @@ async function loadTopico(){
   document.getElementById("reply-add").onclick = async ()=>{
     const texto = document.getElementById("reply-texto").value.trim();
     if(!texto) return;
-    const topicos2 = await sget("debates:" + state.debateMateria) || [];
-    const t2 = topicos2.find(x=>x.id===state.topicoAberto);
-    t2.respostas.push({ autor: state.user.nome, texto, data: new Date().toISOString() });
-    await sset("debates:" + state.debateMateria, topicos2);
+    await sb.from("respostas").insert({ topico_id: state.topicoAberto, autor_id: state.profile.id, texto });
     loadTopico();
   };
 }
@@ -1017,9 +1022,10 @@ function bindTopicoDetalhe(){
   document.getElementById("btn-voltar-debates").onclick = ()=>{ state.topicoAberto = null; render(); };
 }
 
-/* ---------------- PROVAS (feitas pelos alunos) ---------------- */
+/* ---------------- PROVAS (tabelas: provas, perguntas, tentativas_prova) ----------------
+   perguntas.opcoes é jsonb (array de 4 strings) e perguntas.correta é o índice (0-3) da opção certa. */
 function renderProvasList(){
-  loadMateriasNotas().then(async ()=>{
+  loadMaterias().then(async ()=>{
     document.getElementById("provas-body").innerHTML = await provasBodyHtml();
     bindProvasBody();
   });
@@ -1033,20 +1039,22 @@ async function provasBodyHtml(){
   return `
     <div class="chiprow" id="chip-provas-materias" style="margin-bottom:14px;">
       <button class="chip ${state.provaFiltro==='todas'?'active':''}" data-m="todas">Todas</button>
-      ${_materiasCache.map(m=>`<button class="chip ${state.provaFiltro===m?'active':''}" data-m="${esc(m)}">${esc(m)}</button>`).join("")}
+      ${_materiasCache.map(m=>`<button class="chip ${state.provaFiltro===m.id?'active':''}" data-m="${m.id}">${esc(m.nome)}</button>`).join("")}
     </div>
     <div class="toolbar"><div></div><button class="btn btn-ghost btn-sm" id="btn-nova-prova">+ Criar prova</button></div>
     <div class="grid" id="provas-grid">Carregando...</div>
   `;
 }
 async function provasGridHtml(){
-  const provas = await sget("provas") || [];
-  const filtradas = state.provaFiltro === "todas" ? provas : provas.filter(p=>p.materia===state.provaFiltro);
-  if(!filtradas.length) return `<div class="empty"><div class="em-title">Nenhuma prova por aqui</div>Crie a primeira prova para essa matéria.</div>`;
-  return filtradas.slice().reverse().map(p=>`
+  let q = sb.from("provas").select("*, profiles(nome_completo), perguntas(id)");
+  if(state.provaFiltro !== "todas") q = q.eq("materia_id", state.provaFiltro);
+  q = q.order("criado_em", { ascending: false });
+  const { data: provas } = await q;
+  if(!provas || !provas.length) return `<div class="empty"><div class="em-title">Nenhuma prova por aqui</div>Crie a primeira prova para essa matéria.</div>`;
+  return provas.map(p=>`
     <div class="card subject-card" data-id="${p.id}">
-      <div class="subject-name"><span class="subject-tab" style="background:${subjColor(p.materia)}"></span>${esc(p.titulo)}</div>
-      <div class="subject-meta">${esc(p.materia)} · por ${esc(p.autor)}</div>
+      <div class="subject-name"><span class="subject-tab" style="background:${subjColor(p.materia_id)}"></span>${esc(p.titulo)}</div>
+      <div class="subject-meta">${esc(materiaNome(p.materia_id))} · por ${esc(autorNome(p))}</div>
       <div class="subject-stats">
         <span class="badge badge-yellow">${p.perguntas.length} pergunta${p.perguntas.length===1?"":"s"}</span>
       </div>
@@ -1084,7 +1092,7 @@ function renderNovaProvaModal(){
     <input type="text" id="pv-titulo" placeholder="Ex: Revisão de frações">
     <label>Matéria</label>
     <select id="pv-materia">
-      ${_materiasCache.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("")}
+      ${_materiasCache.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join("")}
     </select>
     <div id="pv-perguntas"></div>
     <button class="btn btn-ghost btn-sm" id="pv-add-pergunta" style="margin-top:12px;">+ Adicionar pergunta</button>
@@ -1131,7 +1139,7 @@ function renderPerguntasEditor(){
 }
 async function salvarNovaProva(){
   const titulo = document.getElementById("pv-titulo").value.trim();
-  const materia = document.getElementById("pv-materia").value;
+  const materia_id = document.getElementById("pv-materia").value;
   const errEl = document.getElementById("pv-err");
   if(!titulo){ errEl.style.display="block"; errEl.textContent="Dê um título para a prova."; return; }
   for(const p of novaProvaPerguntas){
@@ -1140,9 +1148,16 @@ async function salvarNovaProva(){
       return;
     }
   }
-  const provas = await sget("provas") || [];
-  provas.push({ id: Date.now().toString(36), titulo, materia, autor: state.user.nome, data: new Date().toISOString(), perguntas: novaProvaPerguntas });
-  await sset("provas", provas);
+  const { data: prova, error: e1 } = await sb.from("provas")
+    .insert({ materia_id, autor_id: state.profile.id, titulo }).select().single();
+  if(e1){ errEl.style.display="block"; errEl.textContent="Erro ao salvar prova: " + e1.message; return; }
+
+  const perguntasRows = novaProvaPerguntas.map((p,pi)=>({
+    prova_id: prova.id, enunciado: p.enunciado, opcoes: p.opcoes, correta: p.correta, ordem: pi
+  }));
+  const { error: e2 } = await sb.from("perguntas").insert(perguntasRows);
+  if(e2){ errEl.style.display="block"; errEl.textContent="Erro ao salvar perguntas: " + e2.message; return; }
+
   closeModal();
   refreshProvasGrid();
 }
@@ -1155,16 +1170,18 @@ function renderProvaDetalhe(){
   `;
 }
 async function loadProvaDetalhe(){
-  const provas = await sget("provas") || [];
-  const p = provas.find(x=>x.id===state.provaAberta);
+  const { data: p } = await sb.from("provas")
+    .select("*, profiles(nome_completo), perguntas(*)")
+    .eq("id", state.provaAberta).maybeSingle();
   const body = document.getElementById("prova-body");
   if(!body) return;
   if(!p){ body.innerHTML = `<div class="empty">Prova não encontrada.</div>`; return; }
+  p.perguntas.sort((a,b)=>a.ordem-b.ordem);
 
   if(state.provaResultado !== null){
     body.innerHTML = `
       <h1 class="page-title">${esc(p.titulo)}</h1>
-      <p class="page-sub">${esc(p.materia)} · por ${esc(p.autor)}</p>
+      <p class="page-sub">${esc(materiaNome(p.materia_id))} · por ${esc(autorNome(p))}</p>
       <div class="card" style="text-align:center; padding:30px;">
         <div class="stat-label">seu resultado</div>
         <div class="stat-num" style="font-size:40px; margin:8px 0;">${state.provaResultado.acertos} / ${p.perguntas.length}</div>
@@ -1177,7 +1194,7 @@ async function loadProvaDetalhe(){
 
   body.innerHTML = `
     <h1 class="page-title">${esc(p.titulo)}</h1>
-    <p class="page-sub">${esc(p.materia)} · por ${esc(p.autor)} · ${p.perguntas.length} pergunta${p.perguntas.length===1?"":"s"}</p>
+    <p class="page-sub">${esc(materiaNome(p.materia_id))} · por ${esc(autorNome(p))} · ${p.perguntas.length} pergunta${p.perguntas.length===1?"":"s"}</p>
     ${p.perguntas.map((q,qi)=>`
       <div class="card" style="margin-bottom:12px;">
         <div style="font-weight:700; margin-bottom:10px;">${qi+1}. ${esc(q.enunciado)}</div>
@@ -1195,7 +1212,7 @@ async function loadProvaDetalhe(){
       loadProvaDetalhe();
     };
   });
-  document.getElementById("pv-enviar").onclick = ()=>{
+  document.getElementById("pv-enviar").onclick = async ()=>{
     if(Object.keys(state.provaRespostas).length < p.perguntas.length){
       const e = document.getElementById("pv-resp-err"); e.style.display="block"; e.textContent="Responda todas as perguntas antes de enviar.";
       return;
@@ -1203,6 +1220,7 @@ async function loadProvaDetalhe(){
     let acertos = 0;
     p.perguntas.forEach((q,qi)=>{ if(state.provaRespostas[qi] === q.correta) acertos++; });
     state.provaResultado = { acertos };
+    await sb.from("tentativas_prova").insert({ prova_id: p.id, usuario_id: state.profile.id, acertos, total: p.perguntas.length });
     loadProvaDetalhe();
   };
 }
@@ -1228,8 +1246,12 @@ function closeModal(){
 
 /* ---------------- INIT ---------------- */
 (async function init(){
-  await ensureSeed();
-  render();
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){
+    await entrarComUsuario(session.user);
+  } else {
+    render();
+  }
 })();
 </script>
 </body>
