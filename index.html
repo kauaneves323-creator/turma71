@@ -520,16 +520,20 @@ async function entrarComUsuario(user, nomeFallback, emailFallback){
 /* ---------------- PRESENÇA ONLINE ---------------- */
 function joinPresence(){
   if(_presenceChannel) return;
-  _presenceChannel = sb.channel("turma-online", { config: { presence: { key: state.profile.id } } });
-  _presenceChannel.on("presence", { event: "sync" }, ()=>{
-    _onlineUsers = _presenceChannel.presenceState();
-    renderOnlineSection();
-  });
-  _presenceChannel.subscribe(async (status)=>{
-    if(status === "SUBSCRIBED"){
-      await _presenceChannel.track({ id: state.profile.id, nome: state.profile.nome_completo });
-    }
-  });
+  try{
+    _presenceChannel = sb.channel("turma-online", { config: { presence: { key: state.profile.id } } });
+    _presenceChannel.on("presence", { event: "sync" }, ()=>{
+      _onlineUsers = _presenceChannel.presenceState();
+      renderOnlineSection();
+    });
+    _presenceChannel.subscribe(async (status)=>{
+      if(status === "SUBSCRIBED"){
+        await _presenceChannel.track({ id: state.profile.id, nome: state.profile.nome_completo });
+      }
+    });
+  }catch(e){
+    console.warn("Presença online indisponível:", e);
+  }
 }
 async function leavePresence(){
   if(!_presenceChannel) return;
@@ -735,6 +739,13 @@ function renderInicio(){
 async function loadInicio(){
   const body = document.getElementById("inicio-body");
   if(!body) return;
+  try{
+    await loadInicioInner(body);
+  }catch(e){
+    body.innerHTML = `<div class="err" style="display:block;">Não deu pra carregar o Início: ${esc(e.message || String(e))}. Confira sua conexão e recarregue a página.</div>`;
+  }
+}
+async function loadInicioInner(body){
   await loadMateriasNotas();
   let mediasMaterias = [];
   Object.values(_notasCache).forEach(provas=>{
