@@ -625,9 +625,9 @@ async function materiaCardHtml(){
     </div>
     ${provas.length ? `
     <table class="notas">
-      <thead><tr><th>Prova</th><th style="text-align:right;">Nota</th></tr></thead>
+      <thead><tr><th>Prova</th><th style="text-align:right;">Nota</th><th></th></tr></thead>
       <tbody>
-        ${provas.map(p=>`<tr><td>${esc(p.nome_prova)}</td><td class="n">${Number(p.valor).toFixed(1)}</td></tr>`).join("")}
+        ${provas.map(p=>`<tr><td>${esc(p.nome_prova)}</td><td class="n">${Number(p.valor).toFixed(1)}</td><td style="text-align:right;"><button class="lr-del nota-del" data-id="${p.id}" title="Excluir nota">✕</button></td></tr>`).join("")}
       </tbody>
     </table>` : `<div class="empty"><div class="em-title">Nenhuma nota ainda</div>Lance a nota da sua primeira prova abaixo.</div>`}
     <div class="add-row">
@@ -639,6 +639,16 @@ async function materiaCardHtml(){
   `;
 }
 function bindMateriaCardInner(){
+  document.querySelectorAll(".nota-del").forEach(btn=>{
+    btn.onclick = async ()=>{
+      if(!confirm("Excluir essa nota?")) return;
+      const { error } = await sb.from("notas").delete().eq("id", btn.dataset.id);
+      if(error){ alert("Não foi possível excluir: " + error.message); return; }
+      const card = document.getElementById("materia-card");
+      card.innerHTML = await materiaCardHtml();
+      bindMateriaCardInner();
+    };
+  });
   document.getElementById("np-add").onclick = async ()=>{
     const nome = document.getElementById("np-nome").value.trim();
     const notaStr = document.getElementById("np-nota").value;
