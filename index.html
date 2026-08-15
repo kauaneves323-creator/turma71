@@ -193,6 +193,9 @@
   .stat-card .stat-num{ font-size:26px; }
   .section-title{ font-family:var(--serif); font-size:17px; margin:0 0 12px; display:flex; align-items:center; justify-content:space-between; }
   .section-title a.link-mini{ font-family:var(--sans); font-size:12px; font-weight:700; color:var(--red); cursor:pointer; text-decoration:none; }
+  .section-title button.link-mini{ font-family:var(--sans); font-size:12px; font-weight:700; color:var(--red); text-decoration:none; }
+  .online-pill{ display:flex; align-items:center; gap:6px; background:var(--paper-2); border:1px solid var(--rule); border-radius:999px; padding:5px 12px; font-size:12px; font-weight:700; }
+  .online-dot{ width:8px; height:8px; border-radius:50%; background:#3F9142; flex-shrink:0; box-shadow:0 0 0 2px rgba(63,145,66,.18); }
   .home-section{ margin-bottom:28px; }
 
   .lembrete-mini{ display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-bottom:1px solid var(--rule); }
@@ -320,12 +323,21 @@ let state = {
 
 let _materiasCache = [];  // [{id, nome, cor}]
 let _notasCache = {};     // { materia_id: [ {id, nome_prova, valor} ] }
+let _horariosCache = [];  // [{id, dia_semana, horario_inicio, horario_fim, materia_id, sala}]
+let _presenceChannel = null;
+let _onlineUsers = {};    // { presenceKey: [ {id, nome, entrou_em} ] }
+const DIA_NOMES = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
 
 function findMateria(id){ return _materiasCache.find(m => m.id === id); }
 function subjColor(id){ const m = findMateria(id); return (m && (m.cor || SUBJECT_COLORS[m.nome])) || "#5B6A87"; }
 function materiaNome(id){ const m = findMateria(id); return m ? m.nome : ""; }
 function esc(s){ const d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
 function fmtDate(iso){ if(!iso) return ""; const d = new Date(iso); return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}); }
+function fmtHora(t){ if(!t) return ""; return t.slice(0,5); }
+async function loadHorarios(){
+  const { data } = await sb.from("horarios").select("*").order("dia_semana").order("horario_inicio");
+  _horariosCache = data || [];
+}
 function autorNome(row){ return row && row.profiles ? row.profiles.nome_completo : "alguém"; }
 
 /* ---------------- CARREGAMENTO BASE ---------------- */
@@ -500,8 +512,45 @@ async function entrarComUsuario(user, nomeFallback, emailFallback){
   state.profile = profile;
   await loadMaterias();
   if(!_materiasCache.length) await ensureSeedMaterias();
+  joinPresence();
   state.view = "inicio";
   render();
+}
+
+/* ---------------- PRESENÇA ONLINE ---------------- */
+function joinPresence(){
+  if(_presenceChannel) return;
+  _presenceChannel = sb.channel("turma-online", { config: { presence: { key: state.profile.id } } });
+  _presenceChannel.on("presence", { event: "sync" }, ()=>{
+    _onlineUsers = _presenceChannel.presenceState();
+    renderOnlineSection();
+  });
+  _presenceChannel.subscribe(async (status)=>{
+    if(status === "SUBSCRIBED"){
+      await _presenceChannel.track({ id: state.profile.id, nome: state.profile.nome_completo });
+    }
+  });
+}
+async function leavePresence(){
+  if(!_presenceChannel) return;
+  await _presenceChannel.untrack();
+  await sb.removeChannel(_presenceChannel);
+  _presenceChannel = null;
+  _onlineUsers = {};
+}
+function onlineUsersUnicos(){
+  const lista = Object.values(_onlineUsers).flat();
+  const uniq = {};
+  lista.forEach(p=>{ uniq[p.id] = p; });
+  return Object.values(uniq);
+}
+function renderOnlineSection(){
+  const el = document.getElementById("online-lista");
+  if(!el) return;
+  const users = onlineUsersUnicos();
+  el.innerHTML = users.length ? users.map(u=>`
+    <div class="online-pill"><span class="online-dot"></span>${esc((u.nome||"").split(" ")[0] || "Alguém")}</div>
+  `).join("") : `<div class="hint">Só você está online agora.</div>`;
 }
 
 /* ---------------- SIDEBAR ---------------- */
@@ -534,6 +583,7 @@ function bindSidebar(){
     };
   });
   document.getElementById("btn-logout").onclick = async ()=>{
+    await leavePresence();
     await sb.auth.signOut();
     state.profile = null; state.view = "login"; render();
   };
@@ -701,12 +751,24 @@ async function loadInicio(){
   const { data: fotosTodas } = await sb.from("mural").select("*, profiles(nome_completo)")
     .order("criado_em", { ascending: false }).limit(6);
 
+  await loadHorarios();
+
   body.innerHTML = `
+    <div class="home-section">
+      <div class="section-title">Online agora</div>
+      <div class="card" id="online-lista" style="display:flex; flex-wrap:wrap; gap:8px;">Carregando...</div>
+    </div>
+
     <div class="stat-cards">
       <div class="stat-card"><div class="stat-num">${_materiasCache.length}</div><div class="stat-label">matérias</div></div>
       <div class="stat-card"><div class="stat-num">${mediaGeral.toFixed(1)}</div><div class="stat-label">média geral</div></div>
       <div class="stat-card"><div class="stat-num">${(pendentes||[]).length}</div><div class="stat-label">lembretes pendentes</div></div>
       <div class="stat-card"><div class="stat-num">${(fotosTodas||[]).length}</div><div class="stat-label">fotos no mural</div></div>
+    </div>
+
+    <div class="home-section">
+      <div class="section-title">Horário da turma <button class="link-mini" id="btn-novo-horario" style="background:none;border:none;cursor:pointer;">+ adicionar</button></div>
+      <div class="card" id="horario-lista">${horarioListaHtml()}</div>
     </div>
 
     <div class="home-section">
@@ -731,8 +793,84 @@ async function loadInicio(){
         </div>` : `<div class="card"><div class="hint">Ninguém tirou foto do quadro ainda.</div></div>`}
     </div>
   `;
+  renderOnlineSection();
   body.querySelectorAll(".mural-thumb").forEach(el=>{
     el.onclick = ()=>{ state.muralLightbox = JSON.parse(el.dataset.foto); renderLightbox(); };
+  });
+  document.getElementById("btn-novo-horario").onclick = abrirModalNovoHorario;
+  bindHorarioLista();
+}
+function horarioListaHtml(){
+  if(!_horariosCache.length) return `<div class="hint">Nenhum horário cadastrado ainda.</div>`;
+  const porDia = {};
+  _horariosCache.forEach(h=>{ (porDia[h.dia_semana] = porDia[h.dia_semana] || []).push(h); });
+  const dias = Object.keys(porDia).map(Number).sort((a,b)=>a-b);
+  return dias.map(dia=>`
+    <div style="margin-bottom:10px;">
+      <div style="font-weight:700; font-size:12px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px;">${DIA_NOMES[dia]}</div>
+      ${porDia[dia].map(h=>`
+        <div class="lembrete-mini" data-id="${h.id}">
+          <span class="lm-dot" style="background:${subjColor(h.materia_id)}"></span>
+          <div style="flex:1;">
+            <div style="font-weight:700; font-size:13px;">${fmtHora(h.horario_inicio)}–${fmtHora(h.horario_fim)} · ${esc(materiaNome(h.materia_id))}</div>
+            ${h.sala ? `<div style="font-size:11px; color:var(--ink-soft);">${esc(h.sala)}</div>` : ""}
+          </div>
+          <button class="lr-del horario-del" data-id="${h.id}" title="Excluir horário">✕</button>
+        </div>
+      `).join("")}
+    </div>
+  `).join("");
+}
+function bindHorarioLista(){
+  document.querySelectorAll(".horario-del").forEach(btn=>{
+    btn.onclick = async ()=>{
+      if(!confirm("Excluir esse horário?")) return;
+      const { error } = await sb.from("horarios").delete().eq("id", btn.dataset.id);
+      if(error){ alert("Não foi possível excluir: " + error.message); return; }
+      await loadHorarios();
+      document.getElementById("horario-lista").innerHTML = horarioListaHtml();
+      bindHorarioLista();
+    };
+  });
+}
+function abrirModalNovoHorario(){
+  openModal(`
+    <h3>Novo horário</h3>
+    <label>Dia da semana</label>
+    <select id="hr-dia">${DIA_NOMES.map((d,i)=>`<option value="${i}" ${i===1?"selected":""}>${d}</option>`).join("")}</select>
+    <label>Matéria</label>
+    <select id="hr-materia">${_materiasCache.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join("")}</select>
+    <label>Início</label>
+    <input type="time" id="hr-inicio" value="08:00">
+    <label>Fim</label>
+    <input type="time" id="hr-fim" value="08:50">
+    <label>Sala (opcional)</label>
+    <input type="text" id="hr-sala" placeholder="Ex: Sala 12">
+    <div class="err" id="hr-err" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="hr-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="hr-save" style="margin-top:0;">Salvar</button>
+    </div>
+  `, ()=>{
+    document.getElementById("hr-cancel").onclick = closeModal;
+    document.getElementById("hr-save").onclick = async ()=>{
+      const dia_semana = Number(document.getElementById("hr-dia").value);
+      const materia_id = document.getElementById("hr-materia").value;
+      const horario_inicio = document.getElementById("hr-inicio").value;
+      const horario_fim = document.getElementById("hr-fim").value;
+      const sala = document.getElementById("hr-sala").value.trim() || null;
+      const errEl = document.getElementById("hr-err");
+      if(!horario_inicio || !horario_fim){
+        errEl.style.display = "block"; errEl.textContent = "Informe o horário de início e fim.";
+        return;
+      }
+      const { error } = await sb.from("horarios").insert({ dia_semana, materia_id, horario_inicio, horario_fim, sala, criado_por: state.profile.id });
+      if(error){ errEl.style.display = "block"; errEl.textContent = "Erro ao salvar: " + error.message; return; }
+      closeModal();
+      await loadHorarios();
+      document.getElementById("horario-lista").innerHTML = horarioListaHtml();
+      bindHorarioLista();
+    };
   });
 }
 function bindInicio(){
@@ -762,7 +900,7 @@ async function muralConteudoHtml(){
     <div class="upload-box">
       <div style="font-weight:700;">Adicionar foto do quadro — ${esc(materiaNome(state.muralMateria))}</div>
       <div class="hint">Tire uma foto ou escolha da galeria.</div>
-      <input type="file" id="mural-file" accept="image/*" capture="environment">
+      <input type="file" id="mural-file" accept="image/*">
       <input type="text" id="mural-legenda" placeholder="Legenda (ex: matéria da prova de sexta)" style="margin-top:10px;">
       <button class="btn btn-primary btn-sm" id="mural-enviar" style="width:auto; margin-top:12px;">Publicar no mural</button>
       <div class="err" id="mural-err" style="display:none;"></div>
