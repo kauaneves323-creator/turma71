@@ -737,6 +737,7 @@ function renderInicio(){
   `;
 }
 async function loadInicio(){
+  await Promise.resolve(); // garante que o HTML já foi inserido no DOM antes de procurar o elemento
   const body = document.getElementById("inicio-body");
   if(!body) return;
   try{
