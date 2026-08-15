@@ -779,7 +779,7 @@ async function loadInicioInner(body){
     </div>
 
     <div class="home-section">
-      <div class="section-title">Horário da turma <button class="link-mini" id="btn-novo-horario" style="background:none;border:none;cursor:pointer;">+ adicionar</button></div>
+      <div class="section-title">Horário da turma ${state.profile.admin ? `<button class="link-mini" id="btn-novo-horario" style="background:none;border:none;cursor:pointer;">+ adicionar</button>` : ""}</div>
       <div class="card" id="horario-lista">${horarioListaHtml()}</div>
     </div>
 
@@ -809,7 +809,9 @@ async function loadInicioInner(body){
   body.querySelectorAll(".mural-thumb").forEach(el=>{
     el.onclick = ()=>{ state.muralLightbox = JSON.parse(el.dataset.foto); renderLightbox(); };
   });
-  document.getElementById("btn-novo-horario").onclick = abrirModalNovoHorario;
+  if(state.profile.admin){
+    document.getElementById("btn-novo-horario").onclick = abrirModalNovoHorario;
+  }
   bindHorarioLista();
 }
 function horarioListaHtml(){
@@ -827,7 +829,7 @@ function horarioListaHtml(){
             <div style="font-weight:700; font-size:13px;">${fmtHora(h.horario_inicio)}–${fmtHora(h.horario_fim)} · ${esc(materiaNome(h.materia_id))}</div>
             ${h.sala ? `<div style="font-size:11px; color:var(--ink-soft);">${esc(h.sala)}</div>` : ""}
           </div>
-          <button class="lr-del horario-del" data-id="${h.id}" title="Excluir horário">✕</button>
+          ${state.profile.admin ? `<button class="lr-del horario-del" data-id="${h.id}" title="Excluir horário">✕</button>` : ""}
         </div>
       `).join("")}
     </div>
