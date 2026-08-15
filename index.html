@@ -238,15 +238,16 @@
 /* =========================================================
    CONFIGURAÇÃO DO SUPABASE
    ========================================================= */
-const SUPABASE_URL = "https://jlmluxtsjvqwjyvfjjfs.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_f8zxhLjVObQaXmlhfeOZZQ_1SEO1P2r";
+const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
+const SUPABASE_ANON_KEY = "SUA_CHAVE_ANON_PUBLICA";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const MURAL_BUCKET = "mural-fotos"; // bucket público no Storage
 
 const SUBJECT_COLORS = {
   "Português":"#C1443C","Matemática":"#4C7A54","História":"#8A6110",
   "Geografia":"#3D6E8C","Ciências":"#6A4C93","Inglês":"#B5533E",
-  "Educação Física":"#4C7A54","Artes":"#9B4F6E"
+  "Educação Física":"#4C7A54","Artes":"#9B4F6E",
+  "Cultura Digital":"#2E7D8C","Ensino Religioso":"#A6763E"
 };
 const DEFAULT_SUBJECTS = Object.keys(SUBJECT_COLORS);
 
@@ -525,7 +526,7 @@ function materiasGridHtml(){
   return _materiasCache.map(m=>{
     const provas = (_notasCache[m.id] || []);
     const soma = provas.reduce((a,p)=>a+Number(p.valor||0),0);
-    const media = provas.length ? (soma/provas.length) : 0;
+    const media = provas.length ? (soma/3) : 0;
     return `
     <div class="card subject-card" data-materia="${m.id}">
       <div class="subject-name"><span class="subject-tab" style="background:${subjColor(m.id)}"></span>${esc(m.nome)}</div>
@@ -566,7 +567,7 @@ async function materiaCardHtml(){
   await loadNotas();
   const provas = _notasCache[state.materiaAberta] || [];
   const soma = provas.reduce((a,p)=>a+Number(p.valor||0),0);
-  const media = provas.length ? (soma/provas.length) : 0;
+  const media = provas.length ? (soma/3) : 0;
   return `
     <div class="subject-stats" style="margin-bottom:6px;">
       <div><div class="stat-num">${soma.toFixed(1)}</div><div class="stat-label">soma total</div></div>
@@ -582,7 +583,7 @@ async function materiaCardHtml(){
     </table>` : `<div class="empty"><div class="em-title">Nenhuma nota ainda</div>Lance a nota da sua primeira prova abaixo.</div>`}
     <div class="add-row">
       <input type="text" class="prova-nome" id="np-nome" placeholder="Nome da prova (ex: Prova 1)">
-      <input type="number" class="prova-nota" id="np-nota" placeholder="Nota" min="0" max="10" step="0.1">
+      <input type="number" class="prova-nota" id="np-nota" placeholder="Nota" min="0" max="100" step="1">
       <button class="btn btn-primary btn-sm" id="np-add" style="margin-top:0;">Adicionar</button>
     </div>
     <div class="err" id="np-err" style="display:none;"></div>
@@ -594,9 +595,9 @@ function bindMateriaCardInner(){
     const notaStr = document.getElementById("np-nota").value;
     const errEl = document.getElementById("np-err");
     const nota = parseFloat(notaStr);
-    if(!nome || isNaN(nota) || nota < 0 || nota > 10){
+    if(!nome || isNaN(nota) || nota < 0 || nota > 100){
       errEl.style.display = "block";
-      errEl.textContent = "Informe o nome da prova e uma nota entre 0 e 10.";
+      errEl.textContent = "Informe o nome da prova e uma nota entre 0 e 100.";
       return;
     }
     const { error } = await sb.from("notas").insert({ usuario_id: state.profile.id, materia_id: state.materiaAberta, nome_prova: nome, valor: nota });
@@ -626,9 +627,14 @@ async function loadInicio(){
   const body = document.getElementById("inicio-body");
   if(!body) return;
   await loadMateriasNotas();
-  let totalNotas = 0, somaNotas = 0;
-  Object.values(_notasCache).forEach(provas=>{ provas.forEach(p=>{ totalNotas++; somaNotas += Number(p.valor||0); }); });
-  const mediaGeral = totalNotas ? (somaNotas/totalNotas) : 0;
+  let mediasMaterias = [];
+  Object.values(_notasCache).forEach(provas=>{
+    if(provas.length){
+      const soma = provas.reduce((a,p)=>a+Number(p.valor||0),0);
+      mediasMaterias.push(soma/3);
+    }
+  });
+  const mediaGeral = mediasMaterias.length ? (mediasMaterias.reduce((a,b)=>a+b,0)/mediasMaterias.length) : 0;
 
   const { data: pendentes } = await sb.from("lembretes").select("*")
     .eq("feito", false).order("data_vencimento", { ascending: true, nullsFirst: false });
